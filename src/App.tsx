@@ -242,6 +242,7 @@ function AiraAssistantBadge({ size = "sm" }: { size?: "sm" | "md" }) {
 
 export default function App() {
   const [viewMode, setViewMode] = useState("greeting");
+  const [mobileActivePane, setMobileActivePane] = useState<"feed" | "chat">("feed");
   const [inputQuery, setInputQuery] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isVoiceSimulated, setIsVoiceSimulated] = useState(false);
@@ -254,7 +255,7 @@ export default function App() {
   const [keywordFilter, setKeywordFilter] = useState("");
   const [strictSignalOnly, setStrictSignalOnly] = useState(true);
   const [minSignalScore, setMinSignalScore] = useState(75);
-  const [showFilterPanel, setShowFilterPanel] = useState(true);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [visibleCountMultiplier, setVisibleCountMultiplier] = useState(1);
   const [hasNewLiveUpdateBanner, setHasNewLiveUpdateBanner] = useState(false);
 
@@ -322,6 +323,7 @@ export default function App() {
     setInputQuery("");
     setIsVoiceSimulated(false);
     setViewMode("conversation");
+    setMobileActivePane("feed");
     setIsGenerating(true);
     setVisibleCountMultiplier(1);
     setHasNewLiveUpdateBanner(false);
@@ -563,54 +565,61 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#0B0D11] text-slate-100 font-sans selection:bg-cyan-500/30 selection:text-cyan-200 flex flex-col overflow-x-hidden">
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-        <div className="absolute -top-40 left-1/4 w-[36rem] h-[36rem] bg-cyan-500/10 rounded-full blur-[130px]" />
-        <div className="absolute top-1/3 -right-32 w-[32rem] h-[32rem] bg-purple-500/10 rounded-full blur-[140px]" />
-        <div className="absolute -bottom-40 left-1/3 w-[28rem] h-[28rem] bg-emerald-500/8 rounded-full blur-[130px]" />
+        <div className="absolute -top-40 left-1/4 w-[22rem] sm:w-[36rem] h-[22rem] sm:h-[36rem] bg-cyan-500/10 rounded-full blur-[110px] sm:blur-[130px]" />
+        <div className="absolute top-1/3 -right-32 w-[20rem] sm:w-[32rem] h-[20rem] sm:h-[32rem] bg-purple-500/10 rounded-full blur-[120px] sm:blur-[140px]" />
+        <div className="absolute -bottom-40 left-1/3 w-[18rem] sm:w-[28rem] h-[18rem] sm:h-[28rem] bg-emerald-500/8 rounded-full blur-[110px] sm:blur-[130px]" />
       </div>
 
-      <header className="sticky top-0 z-30 backdrop-blur-xl bg-[#0B0D11]/85 border-b border-white/[0.06] px-4 sm:px-8 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <header className="sticky top-0 z-30 backdrop-blur-xl bg-[#0B0D11]/90 border-b border-white/[0.07] px-3.5 sm:px-8 py-2.5 sm:py-3 flex items-center justify-between gap-2">
+        <div className="flex items-center min-w-0">
           <button
             onClick={handleResetToGreeting}
-            className="group flex items-center gap-3.5 text-left focus:outline-none"
+            className="group flex items-center gap-2.5 sm:gap-3.5 text-left focus:outline-none min-w-0"
             title="Return to AiRA Greeting Screen"
           >
-            <div className="px-3 py-1.5 rounded-2xl bg-gradient-to-br from-cyan-500/[0.1] via-teal-500/[0.06] to-purple-500/[0.14] border border-cyan-400/25 shadow-lg shadow-cyan-500/10 group-hover:border-cyan-400/50 transition-all flex items-center justify-center">
-              <AiraNeonLogo className="h-8 sm:h-9 w-auto" />
+            <div className="px-2.5 sm:px-3 py-1.5 rounded-xl sm:rounded-2xl bg-gradient-to-br from-cyan-500/[0.12] via-teal-500/[0.06] to-purple-500/[0.15] border border-cyan-400/25 shadow-lg shadow-cyan-500/10 group-hover:border-cyan-400/50 transition-all flex items-center justify-center shrink-0">
+              <AiraNeonLogo className="h-7 sm:h-9 w-auto" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold tracking-wide text-lg sm:text-xl bg-gradient-to-r from-cyan-300 via-teal-200 to-purple-400 bg-clip-text text-transparent">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="font-display font-extrabold tracking-tight text-base sm:text-xl bg-gradient-to-r from-cyan-300 via-teal-200 to-purple-400 bg-clip-text text-transparent">
                   AiRA
                 </span>
-                <span className="text-[10px] uppercase tracking-widest px-2 py-0.5 rounded-full bg-emerald-400/10 text-emerald-300 border border-emerald-400/25 font-medium flex items-center gap-1">
+                <span className="sm:hidden text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-emerald-400/10 text-emerald-300 border border-emerald-400/25 font-semibold inline-flex items-center gap-1 shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  LIVE
+                </span>
+                <span className="hidden sm:inline-flex text-[10px] uppercase tracking-widest px-2 py-0.5 rounded-full bg-emerald-400/10 text-emerald-300 border border-emerald-400/25 font-medium items-center gap-1 shrink-0">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   Live Filtered Social
                 </span>
               </div>
-              <p className="text-xs text-slate-400 hidden sm:block">
+              <p className="text-xs text-slate-400 hidden sm:block truncate">
                 Conversational Live Web Blogs • Photologs • Vlogs
               </p>
             </div>
           </button>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           {turns.length > 0 && (
             <button
               onClick={() =>
                 setViewMode((prev) => (prev === "greeting" ? "conversation" : "greeting"))
               }
-              className="text-xs px-3 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-300 flex items-center gap-1.5 transition"
+              className="h-9 text-xs px-2.5 sm:px-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-200 flex items-center justify-center gap-1.5 transition"
+              title={viewMode === "greeting" ? "Resume Feed" : "Greeting Screen"}
             >
               {viewMode === "greeting" ? (
                 <>
-                  <Layers className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Resume Feed ({turns.length})</span>
+                  <Layers className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="hidden xs:inline sm:inline font-medium">
+                    Feed ({turns.length})
+                  </span>
                 </>
               ) : (
                 <>
-                  <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+                  <RotateCcw className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                   <span className="hidden sm:inline">Greeting Screen</span>
                 </>
               )}
@@ -619,10 +628,10 @@ export default function App() {
 
           <button
             onClick={() => setShowApiKeyModal(true)}
-            className="px-3 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-300 flex items-center gap-1.5 text-xs transition"
+            className="h-9 px-2.5 sm:px-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-300 flex items-center justify-center gap-1.5 text-xs transition"
             title="Configure Live AI & Filter Preferences"
           >
-            <KeyRound className="w-3.5 h-3.5 text-cyan-400" />
+            <KeyRound className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
             <span className="hidden md:inline">
               {geminiApiKey ? "Gemini Key Active" : "Live AI Settings"}
             </span>
@@ -630,9 +639,10 @@ export default function App() {
 
           <button
             onClick={() => setShowSavedDrawer(true)}
-            className="relative px-3 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-200 flex items-center gap-1.5 text-xs transition"
+            className="relative h-9 px-2.5 sm:px-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-200 flex items-center justify-center gap-1.5 text-xs transition"
+            title="Saved Vault"
           >
-            <Bookmark className="w-3.5 h-3.5 text-amber-400" />
+            <Bookmark className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span className="hidden sm:inline">Vault</span>
             {bookmarkedItems.length > 0 && (
               <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 font-bold text-[10px]">
@@ -641,12 +651,12 @@ export default function App() {
             )}
           </button>
 
-          <div className="flex items-center gap-2 pl-2 border-l border-white/10">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-400 to-teal-600 flex items-center justify-center text-slate-950 font-bold text-xs shadow-inner">
+          <div className="flex items-center gap-2 pl-1.5 sm:pl-2 border-l border-white/10">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-400 to-teal-600 flex items-center justify-center text-slate-950 font-bold text-xs shadow-inner shrink-0">
               B
             </div>
             <div className="hidden md:block leading-tight">
-              <p className="text-xs font-medium text-slate-200">Balaji</p>
+              <p className="text-xs font-semibold text-slate-200">Balaji</p>
               <p className="text-[10px] text-emerald-400 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 Chennai, IN
@@ -657,49 +667,49 @@ export default function App() {
       </header>
 
       {viewMode === "greeting" && (
-        <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-12 max-w-4xl mx-auto w-full">
-          <div className="mb-6 relative flex flex-col items-center">
+        <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-8 sm:py-12 max-w-4xl mx-auto w-full">
+          <div className="mb-5 sm:mb-6 relative flex flex-col items-center">
             <div className="absolute -inset-8 bg-gradient-to-r from-cyan-500/20 via-teal-400/15 to-purple-500/20 rounded-full blur-2xl pointer-events-none" />
-            <AiraNeonLogo className="h-16 sm:h-20 w-auto relative z-10" />
+            <AiraNeonLogo className="h-14 sm:h-20 w-auto relative z-10" />
           </div>
 
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/[0.04] border border-cyan-400/25 text-xs text-slate-300 mb-6 shadow-sm">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>
+          <div className="inline-flex items-center justify-center gap-2 px-3 sm:px-3.5 py-1.5 rounded-full bg-white/[0.04] border border-cyan-400/25 text-[11px] sm:text-xs text-slate-300 mb-5 sm:mb-6 shadow-sm text-center max-w-full">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span className="truncate sm:whitespace-normal">
               Welcome to <strong className="text-cyan-300 font-semibold">AiRA</strong> — Live web results, filtered for pure signal.
             </span>
           </div>
 
-          <h1 className="text-4xl sm:text-6xl font-semibold tracking-tight text-center bg-gradient-to-r from-white via-cyan-100 to-purple-200/90 bg-clip-text text-transparent mb-4">
+          <h1 className="font-display text-3xl sm:text-5xl md:text-6xl font-bold tracking-tight text-center bg-gradient-to-r from-white via-cyan-100 to-purple-200/90 bg-clip-text text-transparent mb-3 sm:mb-4 leading-[1.14]">
             {getGreetingPhrase()}.
           </h1>
 
-          <p className="text-slate-400 text-center text-base sm:text-lg max-w-2xl mb-10 leading-relaxed">
+          <p className="text-slate-400 text-center text-sm sm:text-lg max-w-2xl mb-7 sm:mb-10 leading-relaxed px-1">
             Ask about any topic in the world—live sports, cities, science, cinema, or tech. AiRA fetches live blogs, photologs, and vlogs in real time and filters out the noise.
           </p>
 
-          <div className="w-full max-w-2xl mb-10">
+          <div className="w-full max-w-2xl mb-8 sm:mb-10">
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 handleSendQuery();
               }}
-              className="relative group rounded-2xl bg-[#131720]/90 border border-white/[0.12] focus-within:border-amber-400/60 shadow-2xl shadow-black/60 p-2 transition-all duration-300"
+              className="relative group rounded-2xl bg-[#131720]/95 border border-white/[0.12] focus-within:border-amber-400/60 shadow-2xl shadow-black/60 p-1.5 sm:p-2 transition-all duration-300"
             >
-              <div className="flex items-center gap-2 px-3 py-2">
-                <MessageSquare className="w-5 h-5 text-amber-400/80 shrink-0" />
+              <div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2">
+                <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400/80 shrink-0" />
                 <input
                   type="text"
                   value={inputQuery}
                   onChange={(e) => setInputQuery(e.target.value)}
-                  placeholder='Ask anything live: "Formula 1", "New smartphone", "SpaceX", "Kyoto"...'
-                  className="w-full bg-transparent text-slate-100 placeholder-slate-500 text-base sm:text-lg focus:outline-none"
+                  placeholder='Ask live: "Formula 1", "Smartphone", "Kyoto"...'
+                  className="flex-1 min-w-0 bg-transparent text-slate-100 placeholder-slate-500 text-sm sm:text-lg focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={handleToggleVoice}
                   title="Simulate Voice Input"
-                  className={`p-2.5 rounded-xl transition ${
+                  className={`p-2 sm:p-2.5 rounded-xl shrink-0 transition ${
                     isVoiceSimulated
                       ? "bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse"
                       : "bg-white/[0.05] hover:bg-white/[0.1] text-slate-300"
@@ -714,9 +724,10 @@ export default function App() {
                 <button
                   type="submit"
                   disabled={!inputQuery.trim() || isGenerating}
-                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 disabled:opacity-40 text-slate-950 font-semibold text-sm flex items-center gap-2"
+                  className="px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 disabled:opacity-40 text-slate-950 font-semibold text-xs sm:text-sm flex items-center gap-1.5 shrink-0 shadow-md shadow-amber-500/10"
                 >
-                  <span>Explore Live</span>
+                  <span className="hidden sm:inline">Explore Live</span>
+                  <span className="sm:hidden">Explore</span>
                   <Send className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -731,36 +742,36 @@ export default function App() {
           </div>
 
           <div className="w-full max-w-3xl">
-            <div className="flex items-center justify-between mb-3 px-1">
-              <span className="text-xs uppercase tracking-wider text-slate-500 font-medium">
-                Try a live filtered stream or type any custom topic above
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-3 px-1">
+              <span className="text-[11px] sm:text-xs uppercase tracking-wider text-slate-400 font-semibold">
+                Try a live filtered stream or type any custom topic
               </span>
-              <span className="text-xs text-emerald-400/90 flex items-center gap-1">
-                <Globe className="w-3.5 h-3.5" /> Multi-Source Live Web Fetch
+              <span className="text-[11px] sm:text-xs text-emerald-400/90 flex items-center gap-1">
+                <Globe className="w-3.5 h-3.5 shrink-0" /> Multi-Source Live Web Fetch
               </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-3.5">
               {greetingChips.map((chip, idx) => {
                 const IconComponent = chip.icon;
                 return (
                   <button
                     key={idx}
                     onClick={() => handleSendQuery(chip.label)}
-                    className="group text-left p-4 rounded-2xl bg-[#12161F]/80 hover:bg-[#171C28] border border-white/[0.07] hover:border-amber-400/40 transition-all duration-200 flex flex-col justify-between h-full"
+                    className="group text-left p-4 rounded-2xl bg-[#12161F]/85 hover:bg-[#171C28] border border-white/[0.08] hover:border-amber-400/40 transition-all duration-200 flex flex-col justify-between h-full"
                   >
                     <div>
-                      <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center justify-between mb-2.5 sm:mb-3">
                         <span className="p-2 rounded-xl bg-amber-400/10 text-amber-300 border border-amber-400/20">
                           <IconComponent className="w-4 h-4" />
                         </span>
                         <ArrowUpRight className="w-4 h-4 text-slate-500 group-hover:text-amber-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
                       </div>
-                      <p className="text-sm font-medium text-slate-100 group-hover:text-white leading-snug mb-2">
+                      <p className="text-sm font-semibold text-slate-100 group-hover:text-white leading-snug mb-1.5">
                         “{chip.label}”
                       </p>
                     </div>
-                    <span className="text-[11px] text-slate-400 mt-2 inline-block">
+                    <span className="text-[11px] text-slate-400 mt-1.5 inline-block">
                       {chip.tag}
                     </span>
                   </button>
@@ -772,30 +783,93 @@ export default function App() {
       )}
 
       {viewMode === "conversation" && (
-        <main className="relative z-10 flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <main className="relative z-10 flex-1 max-w-[1440px] w-full mx-auto px-3.5 sm:px-6 lg:px-8 pt-3 pb-24 lg:py-6 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-start">
+          {/* MOBILE STICKY PANE SWITCHER (Hidden on desktop lg+) */}
+          <div className="lg:hidden sticky top-[55px] z-20 -mx-3.5 px-3.5 py-2 bg-[#0B0D11]/95 backdrop-blur-xl border-b border-white/[0.07] flex items-center justify-between gap-2">
+            <div className="flex items-center bg-[#121620] p-1 rounded-xl border border-white/[0.08] flex-1">
+              <button
+                onClick={() => setMobileActivePane("feed")}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
+                  mobileActivePane === "feed"
+                    ? "bg-amber-400 text-slate-950 shadow-sm"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <Compass className="w-3.5 h-3.5" />
+                <span>Social Feed</span>
+                {currentTurn && (
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                      mobileActivePane === "feed"
+                        ? "bg-slate-950/20 text-slate-950 font-bold"
+                        : "bg-white/[0.07] text-slate-400"
+                    }`}
+                  >
+                    {filteredFeed.articles.length +
+                      filteredFeed.photologs.length +
+                      filteredFeed.vlogs.length}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setMobileActivePane("chat")}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
+                  mobileActivePane === "chat"
+                    ? "bg-cyan-400 text-slate-950 shadow-sm"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+                <span>AiRA Curator</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                    mobileActivePane === "chat"
+                      ? "bg-slate-950/20 text-slate-950 font-bold"
+                      : "bg-white/[0.07] text-slate-400"
+                  }`}
+                >
+                  {turns.length}
+                </span>
+              </button>
+            </div>
+
+            <button
+              onClick={handleResetToGreeting}
+              className="h-9 px-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-xs text-slate-300 flex items-center gap-1 shrink-0"
+              title="Start a New Topic"
+            >
+              <PlusCircle className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden xs:inline">New</span>
+            </button>
+          </div>
+
           {/* LEFT COLUMN: CONVERSATION & PROMPT STREAM */}
-          <section className="lg:col-span-4 lg:sticky lg:top-20 flex flex-col bg-[#11151E]/90 border border-white/[0.08] rounded-3xl overflow-hidden shadow-2xl max-h-[85vh]">
-            <div className="px-5 py-4 border-b border-white/[0.07] flex items-center justify-between bg-white/[0.02]">
+          <section
+            className={`${
+              mobileActivePane === "chat" ? "flex" : "hidden lg:flex"
+            } lg:col-span-4 lg:sticky lg:top-20 flex-col bg-[#11151E]/95 border border-white/[0.08] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl min-h-[70vh] lg:min-h-0 max-h-[80vh] lg:max-h-[85vh]`}
+          >
+            <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-white/[0.07] flex items-center justify-between bg-white/[0.02]">
               <div className="flex items-center gap-2.5">
                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
                 <div>
-                  <h2 className="text-sm font-semibold text-white">AiRA Live Curator</h2>
+                  <h2 className="font-display text-sm font-bold text-white">AiRA Live Curator</h2>
                   <p className="text-[11px] text-slate-400">Real-time web search & noise filter</p>
                 </div>
               </div>
               <button
                 onClick={handleResetToGreeting}
-                className="text-xs text-slate-400 hover:text-cyan-300 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] transition"
+                className="text-xs text-slate-300 hover:text-cyan-300 flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] transition"
               >
                 <PlusCircle className="w-3.5 h-3.5" />
                 <span>New Topic</span>
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-5">
-              <div className="flex items-start gap-3">
+            <div className="flex-1 overflow-y-auto p-3.5 sm:p-4 space-y-4 sm:space-y-5">
+              <div className="flex items-start gap-2.5 sm:gap-3">
                 <AiraAssistantBadge />
-                <div className="bg-white/[0.04] border border-white/[0.07] rounded-2xl rounded-tl-sm px-4 py-3 text-xs sm:text-sm text-slate-300 leading-relaxed">
+                <div className="bg-white/[0.04] border border-white/[0.07] rounded-2xl rounded-tl-sm px-3.5 sm:px-4 py-3 text-xs sm:text-sm text-slate-300 leading-relaxed">
                   {getGreetingPhrase()}! I’m <span className="text-cyan-300 font-semibold">AiRA</span>. Ask me about any live topic, and I’ll curate real-time blogs, photologs, vlogs, and live event updates from trusted sources while filtering out noise.
                 </div>
               </div>
@@ -805,7 +879,7 @@ export default function App() {
                 return (
                   <div key={turn.id} className="space-y-3">
                     <div className="flex justify-end">
-                      <div className="max-w-[85%] bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-400/30 text-amber-100 rounded-2xl rounded-tr-sm px-4 py-2.5 text-xs sm:text-sm">
+                      <div className="max-w-[88%] bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-400/30 text-amber-100 rounded-2xl rounded-tr-sm px-3.5 sm:px-4 py-2.5 text-xs sm:text-sm">
                         <p>{turn.userQuery}</p>
                         <span className="block text-[10px] text-amber-300/60 mt-1 text-right">
                           {turn.timestamp}
@@ -813,11 +887,14 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="flex items-start gap-3">
+                    <div className="flex items-start gap-2.5 sm:gap-3">
                       <AiraAssistantBadge />
                       <div
-                        onClick={() => setActiveTurnId(turn.id)}
-                        className={`flex-1 rounded-2xl rounded-tl-sm p-4 border transition cursor-pointer ${
+                        onClick={() => {
+                          setActiveTurnId(turn.id);
+                          setMobileActivePane("feed");
+                        }}
+                        className={`flex-1 min-w-0 rounded-2xl rounded-tl-sm p-3.5 sm:p-4 border transition cursor-pointer ${
                           isSelected
                             ? "bg-[#181E2C] border-cyan-400/40 shadow-lg"
                             : "bg-white/[0.03] border-white/[0.07] hover:bg-white/[0.06]"
@@ -830,14 +907,14 @@ export default function App() {
                         {turn.feedData.stats && (
                           <div className="mb-2.5 flex items-center gap-1.5 text-[11px] text-emerald-300/90 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
                             <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                            <span>
+                            <span className="truncate">
                               Filtered {turn.feedData.stats.filteredNoiseCount} noisy items •{" "}
                               {turn.feedData.stats.sources?.length || 4} live sources
                             </span>
                           </div>
                         )}
 
-                        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/[0.07]">
+                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pt-2 border-t border-white/[0.07]">
                           <span className="text-[11px] px-2.5 py-1 rounded-lg bg-amber-400/10 text-amber-300 font-medium flex items-center gap-1">
                             <BookOpen className="w-3 h-3" />
                             {turn.feedData.articles?.length || 0} Blogs
@@ -875,7 +952,7 @@ export default function App() {
             </div>
 
             {currentTurn && currentTurn.feedData?.followUpPrompts && !isGenerating && (
-              <div className="px-4 py-2.5 bg-white/[0.02] border-t border-white/[0.06] overflow-x-auto">
+              <div className="px-3.5 py-2.5 bg-white/[0.02] border-t border-white/[0.06] overflow-x-auto no-scrollbar">
                 <div className="flex items-center gap-2">
                   {currentTurn.feedData.followUpPrompts.map((prompt: string, i: number) => (
                     <button
@@ -902,12 +979,12 @@ export default function App() {
                 value={inputQuery}
                 onChange={(e) => setInputQuery(e.target.value)}
                 placeholder="Ask any live topic or follow-up..."
-                className="flex-1 bg-white/[0.05] border border-white/[0.08] focus:border-amber-400/50 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none"
+                className="flex-1 min-w-0 bg-white/[0.05] border border-white/[0.08] focus:border-amber-400/50 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none"
               />
               <button
                 type="button"
                 onClick={handleToggleVoice}
-                className={`p-2.5 rounded-xl border transition ${
+                className={`p-2.5 rounded-xl border shrink-0 transition ${
                   isVoiceSimulated
                     ? "bg-rose-500/20 border-rose-500/40 text-rose-300 animate-pulse"
                     : "bg-white/[0.05] border-white/[0.08] text-slate-400 hover:text-white"
@@ -919,7 +996,7 @@ export default function App() {
               <button
                 type="submit"
                 disabled={!inputQuery.trim() || isGenerating}
-                className="p-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 font-semibold transition cursor-pointer"
+                className="p-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 font-semibold transition cursor-pointer shrink-0"
               >
                 <Send className="w-4 h-4" />
               </button>
@@ -927,19 +1004,61 @@ export default function App() {
           </section>
 
           {/* RIGHT COLUMN: LIVE FILTERED SOCIAL FEED */}
-          <section className="lg:col-span-8 space-y-6 pb-16">
+          <section
+            className={`${
+              mobileActivePane === "feed" ? "block" : "hidden lg:block"
+            } lg:col-span-8 space-y-4 sm:space-y-6 pb-8 lg:pb-16 min-w-0`}
+          >
             {currentTurn ? (
               <>
+                {/* MOBILE COMPACT CURATOR SUMMARY BANNER (Shown on mobile feed view) */}
+                <div className="lg:hidden rounded-2xl bg-gradient-to-br from-[#151C2C] via-[#121620] to-[#11151E] border border-cyan-400/25 p-3.5 shadow-lg space-y-2.5">
+                  <div className="flex items-start gap-2.5">
+                    <AiraAssistantBadge />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-[11px] font-semibold text-cyan-300 uppercase tracking-wider">
+                          AiRA Live Synthesis
+                        </span>
+                        <button
+                          onClick={() => setMobileActivePane("chat")}
+                          className="text-[11px] text-amber-300 hover:text-amber-200 font-medium flex items-center gap-1"
+                        >
+                          <span>Full Chat</span>
+                          <ArrowUpRight className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-200 leading-relaxed line-clamp-3">
+                        {currentTurn.feedData.assistantSummary}
+                      </p>
+                    </div>
+                  </div>
+
+                  {currentTurn.feedData.followUpPrompts?.length > 0 && (
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1">
+                      {currentTurn.feedData.followUpPrompts.map((prompt: string, i: number) => (
+                        <button
+                          key={i}
+                          onClick={() => handleSendQuery(prompt)}
+                          className="shrink-0 text-[11px] px-2.5 py-1 rounded-full bg-white/[0.05] text-slate-300 border border-white/[0.08] active:bg-amber-400/20"
+                        >
+                          {prompt}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {/* SUBTLE NEW UPDATES INDICATOR (Preserves scroll position) */}
                 {hasNewLiveUpdateBanner && (
-                  <div className="flex items-center justify-between px-4 py-2.5 rounded-2xl bg-cyan-500/15 border border-cyan-400/35 text-xs text-cyan-200">
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 sm:px-4 py-2.5 rounded-2xl bg-cyan-500/15 border border-cyan-400/35 text-xs text-cyan-200">
                     <div className="flex items-center gap-2">
-                      <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                      <span>New live updates and score refreshes are available for this topic.</span>
+                      <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse shrink-0" />
+                      <span>New live updates and score refreshes are available.</span>
                     </div>
                     <button
                       onClick={() => handleRefreshLiveTurn(undefined, true)}
-                      className="px-3 py-1 rounded-xl bg-cyan-400 text-slate-950 font-semibold hover:bg-cyan-300 transition"
+                      className="px-3 py-1 rounded-xl bg-cyan-400 text-slate-950 font-semibold hover:bg-cyan-300 transition shrink-0"
                     >
                       Update In-Place
                     </button>
@@ -947,49 +1066,49 @@ export default function App() {
                 )}
 
                 {/* FEED HEADER & INTERACTIVE FILTER CONTROLS */}
-                <div className="bg-[#121620]/90 border border-white/[0.08] rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.07] pb-4">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-emerald-400 font-medium mb-1">
-                        <Globe className="w-3.5 h-3.5" />
-                        <span>LIVE WEB STREAM • NOISE FILTERED</span>
+                <div className="bg-[#121620]/95 border border-white/[0.08] rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-xl space-y-3.5 sm:space-y-4">
+                  <div className="flex items-start justify-between gap-3 border-b border-white/[0.07] pb-3.5 sm:pb-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px] sm:text-xs text-emerald-400 font-medium mb-1">
+                        <Globe className="w-3.5 h-3.5 shrink-0" />
+                        <span>LIVE WEB STREAM</span>
                         {currentTurn.feedData.stats?.fetchedAt && (
-                          <span className="text-slate-500">
-                            • Updated {currentTurn.feedData.stats.fetchedAt}
+                          <span className="text-slate-400">
+                            • {currentTurn.feedData.stats.fetchedAt}
                           </span>
                         )}
                       </div>
-                      <h1 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight">
+                      <h1 className="font-display text-xl sm:text-3xl font-bold text-white tracking-tight leading-snug break-words">
                         {currentTurn.feedData.topicTitle}
                       </h1>
                     </div>
 
-                    <div className="flex items-center gap-2 self-start">
+                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                       <button
                         onClick={() => handleRefreshLiveTurn()}
                         disabled={isGenerating}
-                        className="p-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-300 hover:text-white transition"
+                        className="h-9 w-9 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-300 hover:text-white flex items-center justify-center transition"
                         title="Refresh live results"
                       >
                         <RefreshCw className={`w-4 h-4 ${isGenerating ? "animate-spin text-amber-400" : ""}`} />
                       </button>
                       <button
                         onClick={() => setShowFilterPanel((prev) => !prev)}
-                        className={`px-3 py-2 rounded-xl border text-xs font-medium flex items-center gap-1.5 transition ${
+                        className={`h-9 px-3 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${
                           showFilterPanel
                             ? "bg-cyan-500/15 border-cyan-400/40 text-cyan-200"
                             : "bg-white/[0.05] border-white/[0.08] text-slate-300"
                         }`}
                       >
-                        <SlidersHorizontal className="w-3.5 h-3.5" />
+                        <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
                         <span>Filters</span>
                       </button>
                     </div>
                   </div>
 
-                  {/* MEDIA TYPE TABS */}
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-1.5 bg-[#0B0D11] p-1.5 rounded-2xl border border-white/[0.07]">
+                  {/* MEDIA TYPE TABS & KEYWORD SEARCH */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
+                    <div className="flex items-center gap-1 bg-[#0B0D11] p-1 rounded-2xl border border-white/[0.07] overflow-x-auto no-scrollbar w-full sm:w-auto">
                       {[
                         {
                           id: "all",
@@ -1006,7 +1125,7 @@ export default function App() {
                         <button
                           key={tab.id}
                           onClick={() => setActiveMediaFilter(tab.id)}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-medium transition flex items-center gap-1.5 ${
+                          className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-medium transition flex items-center gap-1.5 ${
                             activeMediaFilter === tab.id
                               ? "bg-amber-400 text-slate-950 shadow-sm font-semibold"
                               : "text-slate-400 hover:text-white"
@@ -1016,7 +1135,7 @@ export default function App() {
                           <span
                             className={`text-[10px] px-1.5 py-0.2 rounded-full ${
                               activeMediaFilter === tab.id
-                                ? "bg-slate-950/20 text-slate-950"
+                                ? "bg-slate-950/20 text-slate-950 font-bold"
                                 : "bg-white/[0.07] text-slate-400"
                             }`}
                           >
@@ -1027,14 +1146,14 @@ export default function App() {
                     </div>
 
                     {/* WITHIN-RESULTS KEYWORD FILTER */}
-                    <div className="relative flex-1 min-w-[200px] max-w-xs">
+                    <div className="relative w-full sm:flex-1 sm:min-w-[190px] sm:max-w-xs">
                       <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
                         value={keywordFilter}
                         onChange={(e) => setKeywordFilter(e.target.value)}
-                        placeholder="Filter results by keyword or #tag..."
-                        className="w-full bg-[#0B0D11] border border-white/[0.08] focus:border-cyan-400/50 rounded-xl pl-8 pr-7 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none"
+                        placeholder="Filter by keyword or #tag..."
+                        className="w-full bg-[#0B0D11] border border-white/[0.08] focus:border-cyan-400/50 rounded-xl pl-8 pr-7 py-2 sm:py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none"
                       />
                       {keywordFilter && (
                         <button
@@ -1049,15 +1168,15 @@ export default function App() {
 
                   {/* EXPANDABLE SMART FILTER BAR (Source, Timeframe, Sort, Signal Threshold) */}
                   {showFilterPanel && (
-                    <div className="pt-3 border-t border-white/[0.06] grid grid-cols-1 md:grid-cols-12 gap-3 items-center text-xs">
+                    <div className="pt-3 border-t border-white/[0.06] space-y-3 md:space-y-0 md:grid md:grid-cols-12 md:gap-3 items-center text-xs">
                       {/* Source Filter Pills */}
-                      <div className="md:col-span-7 flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[11px] text-slate-400 mr-1 flex items-center gap-1">
+                      <div className="md:col-span-7 flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 md:pb-0 md:flex-wrap">
+                        <span className="text-[11px] text-slate-400 mr-1 flex items-center gap-1 shrink-0">
                           <Filter className="w-3 h-3 text-cyan-400" /> Source:
                         </span>
                         <button
                           onClick={() => setActiveSourceFilter("all")}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] transition ${
+                          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] transition ${
                             activeSourceFilter === "all"
                               ? "bg-cyan-400/20 text-cyan-200 border border-cyan-400/40 font-medium"
                               : "bg-white/[0.04] text-slate-400 hover:text-slate-200"
@@ -1071,7 +1190,7 @@ export default function App() {
                             onClick={() =>
                               setActiveSourceFilter((prev) => (prev === src ? "all" : src))
                             }
-                            className={`px-2.5 py-1 rounded-lg text-[11px] transition ${
+                            className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] transition ${
                               activeSourceFilter === src
                                 ? "bg-cyan-400/20 text-cyan-200 border border-cyan-400/40 font-medium"
                                 : "bg-white/[0.04] text-slate-400 hover:text-slate-200"
@@ -1083,7 +1202,7 @@ export default function App() {
                       </div>
 
                       {/* Timeframe + Sort + Signal Filter */}
-                      <div className="md:col-span-5 flex flex-wrap items-center justify-end gap-2">
+                      <div className="md:col-span-5 grid grid-cols-2 sm:flex sm:flex-wrap items-center justify-end gap-2">
                         <select
                           value={activeTimeframe}
                           onChange={(e) =>
@@ -1091,7 +1210,7 @@ export default function App() {
                               e.target.value as "all" | "day" | "week" | "month" | "year"
                             )
                           }
-                          className="bg-[#0B0D11] border border-white/[0.1] rounded-xl px-2.5 py-1.5 text-[11px] text-slate-200 focus:outline-none"
+                          className="w-full sm:w-auto bg-[#0B0D11] border border-white/[0.1] rounded-xl px-2.5 py-2 sm:py-1.5 text-[11px] text-slate-200 focus:outline-none"
                           title="Live Search Timeframe"
                         >
                           <option value="all">Time: All Relevant</option>
@@ -1106,7 +1225,7 @@ export default function App() {
                           onChange={(e) =>
                             setActiveSortBy(e.target.value as "signal" | "latest" | "popular")
                           }
-                          className="bg-[#0B0D11] border border-white/[0.1] rounded-xl px-2.5 py-1.5 text-[11px] text-slate-200 focus:outline-none"
+                          className="w-full sm:w-auto bg-[#0B0D11] border border-white/[0.1] rounded-xl px-2.5 py-2 sm:py-1.5 text-[11px] text-slate-200 focus:outline-none"
                           title="Sort Order"
                         >
                           <option value="signal">Sort: Highest Signal</option>
@@ -1116,7 +1235,7 @@ export default function App() {
 
                         <button
                           onClick={() => setStrictSignalOnly((prev) => !prev)}
-                          className={`px-2.5 py-1.5 rounded-xl border text-[11px] flex items-center gap-1 transition ${
+                          className={`col-span-2 sm:col-span-1 justify-center px-2.5 py-2 sm:py-1.5 rounded-xl border text-[11px] flex items-center gap-1 transition ${
                             strictSignalOnly
                               ? "bg-emerald-500/15 border-emerald-400/35 text-emerald-300"
                               : "bg-white/[0.04] border-white/[0.08] text-slate-400"
@@ -1132,15 +1251,15 @@ export default function App() {
 
                   {/* LIVE MATCH SCORECARD & EVENT PROGRESS CARD */}
                   {currentTurn.feedData.matchScorecard && (
-                    <div className="mt-3 rounded-2xl bg-gradient-to-r from-emerald-950/60 via-[#151C28] to-indigo-950/60 border border-emerald-500/25 p-4 sm:p-5">
+                    <div className="mt-2 rounded-2xl bg-gradient-to-r from-emerald-950/60 via-[#151C28] to-indigo-950/60 border border-emerald-500/25 p-3.5 sm:p-5">
                       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                        <span className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
-                          <Flame className="w-3.5 h-3.5 text-amber-400" />
-                          {currentTurn.feedData.matchScorecard.event}
+                        <span className="text-xs font-medium text-slate-200 flex items-center gap-1.5 min-w-0">
+                          <Flame className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span className="truncate">{currentTurn.feedData.matchScorecard.event}</span>
                         </span>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <span
-                            className={`text-[11px] font-bold tracking-wider uppercase px-2.5 py-0.5 rounded-full border ${
+                            className={`text-[10px] sm:text-[11px] font-bold tracking-wider uppercase px-2.5 py-0.5 rounded-full border ${
                               currentTurn.feedData.matchScorecard.isLive
                                 ? "bg-rose-500/20 text-rose-300 border-rose-400/40 animate-pulse"
                                 : currentTurn.feedData.matchScorecard.isStale
@@ -1164,46 +1283,46 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4 py-3 border-y border-white/[0.08]">
-                        <div className="flex items-center gap-3">
-                          <span className="text-3xl">{currentTurn.feedData.matchScorecard.team1.flag}</span>
-                          <div>
-                            <p className="text-xs text-slate-400 font-medium">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-4 py-3 border-y border-white/[0.08]">
+                        <div className="flex items-center justify-between sm:justify-start gap-3 bg-white/[0.03] sm:bg-transparent px-3 py-2 sm:p-0 rounded-xl">
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-2xl sm:text-3xl">{currentTurn.feedData.matchScorecard.team1.flag}</span>
+                            <p className="text-xs sm:text-sm text-slate-300 font-semibold">
                               {currentTurn.feedData.matchScorecard.team1.name}
                             </p>
-                            <p className="text-xl sm:text-2xl font-bold text-white">
-                              {currentTurn.feedData.matchScorecard.team1.score}{" "}
-                              <span className="text-xs font-normal text-slate-400">
-                                ({currentTurn.feedData.matchScorecard.team1.overs})
-                              </span>
-                            </p>
                           </div>
+                          <p className="text-base sm:text-2xl font-display font-bold text-white">
+                            {currentTurn.feedData.matchScorecard.team1.score}{" "}
+                            <span className="text-[11px] sm:text-xs font-sans font-normal text-slate-400">
+                              ({currentTurn.feedData.matchScorecard.team1.overs})
+                            </span>
+                          </p>
                         </div>
 
-                        <div className="flex items-center gap-3 justify-end text-right">
-                          <div>
-                            <p className="text-xs text-slate-400 font-medium">
+                        <div className="flex items-center justify-between sm:justify-end gap-3 bg-white/[0.03] sm:bg-transparent px-3 py-2 sm:p-0 rounded-xl sm:text-right">
+                          <div className="flex items-center gap-2.5 sm:order-2">
+                            <span className="text-2xl sm:text-3xl sm:order-2">{currentTurn.feedData.matchScorecard.team2.flag}</span>
+                            <p className="text-xs sm:text-sm text-slate-300 font-semibold sm:order-1">
                               {currentTurn.feedData.matchScorecard.team2.name}
                             </p>
-                            <p className="text-xl sm:text-2xl font-bold text-slate-200">
-                              {currentTurn.feedData.matchScorecard.team2.score}{" "}
-                              <span className="text-xs font-normal text-slate-400">
-                                ({currentTurn.feedData.matchScorecard.team2.overs})
-                              </span>
-                            </p>
                           </div>
-                          <span className="text-3xl">{currentTurn.feedData.matchScorecard.team2.flag}</span>
+                          <p className="text-base sm:text-2xl font-display font-bold text-slate-200 sm:order-1">
+                            {currentTurn.feedData.matchScorecard.team2.score}{" "}
+                            <span className="text-[11px] sm:text-xs font-sans font-normal text-slate-400">
+                              ({currentTurn.feedData.matchScorecard.team2.overs})
+                            </span>
+                          </p>
                         </div>
                       </div>
 
-                      <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-300">
-                        <span>
+                      <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 text-xs text-slate-300">
+                        <span className="leading-snug">
                           <strong className="text-amber-300">Key Highlight:</strong>{" "}
                           {currentTurn.feedData.matchScorecard.playerOfMatch}
                         </span>
                         <span className="text-slate-400 flex items-center gap-1">
-                          <Calendar className="w-3.5 h-3.5 text-indigo-400" />
-                          {currentTurn.feedData.matchScorecard.upcoming}
+                          <Calendar className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                          <span>{currentTurn.feedData.matchScorecard.upcoming}</span>
                         </span>
                       </div>
                     </div>
@@ -1211,16 +1330,16 @@ export default function App() {
 
                   {/* DEVELOPING STORY STREAM (When multiple approved publishers cover an evolving topic) */}
                   {currentTurn.feedData.developingStories?.length > 0 && (
-                    <div className="mt-2 rounded-2xl bg-white/[0.02] border border-white/[0.07] p-4">
+                    <div className="mt-2 rounded-2xl bg-white/[0.02] border border-white/[0.07] p-3.5 sm:p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                          <span className="text-xs font-semibold text-amber-300 uppercase tracking-wider">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                          <span className="text-xs font-semibold text-amber-300 uppercase tracking-wider truncate">
                             {currentTurn.feedData.developingStories[0].storyTitle}
                           </span>
                         </div>
                         <span className="text-[11px] text-slate-400">
-                          Covered across {currentTurn.feedData.developingStories[0].publisherCount} distinct publishers
+                          {currentTurn.feedData.developingStories[0].publisherCount} distinct publishers
                         </span>
                       </div>
 
@@ -1235,8 +1354,8 @@ export default function App() {
                           >
                             <div>
                               <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
-                                <span className="font-semibold text-cyan-300">{upd.sourceName}</span>
-                                <span>{upd.publishedAt}</span>
+                                <span className="font-semibold text-cyan-300 truncate">{upd.sourceName}</span>
+                                <span className="shrink-0 ml-2">{upd.publishedAt}</span>
                               </div>
                               <p className="text-xs text-slate-200 font-medium line-clamp-2 leading-snug">
                                 {upd.headline}
@@ -1279,36 +1398,36 @@ export default function App() {
                 {/* SECTION 1: PHOTOLOGS */}
                 {(activeMediaFilter === "all" || activeMediaFilter === "photologs") &&
                   filteredFeed.photologs.length > 0 && (
-                    <div className="space-y-4">
+                    <div className="space-y-3.5 sm:space-y-4">
                       <div className="flex items-center justify-between px-1">
-                        <div className="flex items-center gap-2">
-                          <span className="p-2 rounded-xl bg-indigo-500/15 text-indigo-300 border border-indigo-500/25">
+                        <div className="flex items-center gap-2.5">
+                          <span className="p-2 rounded-xl bg-indigo-500/15 text-indigo-300 border border-indigo-500/25 shrink-0">
                             <Camera className="w-4 h-4" />
                           </span>
                           <div>
-                            <h2 className="text-lg font-semibold text-white">
+                            <h2 className="font-display text-base sm:text-lg font-bold text-white">
                               Live Photologs & Visual Moments
                             </h2>
-                            <p className="text-xs text-slate-400">
+                            <p className="text-[11px] sm:text-xs text-slate-400">
                               High-resolution editorial frames & official visual galleries
                             </p>
                           </div>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 sm:gap-4">
                         {filteredFeed.photologs.map((photo: any, index: number) => {
                           const isLiked = !!likedIds[photo.id];
                           return (
                             <div
                               key={photo.id}
-                              className={`group relative rounded-3xl overflow-hidden bg-[#141822] border border-white/[0.08] hover:border-amber-400/40 transition-all duration-300 flex flex-col ${
+                              className={`group relative rounded-2xl sm:rounded-3xl overflow-hidden bg-[#141822] border border-white/[0.08] hover:border-amber-400/40 transition-all duration-300 flex flex-col ${
                                 index === 0 ? "md:col-span-2" : "md:col-span-1"
                               }`}
                             >
                               <div
                                 onClick={() => setSelectedPhoto(photo)}
-                                className="relative h-64 sm:h-72 w-full overflow-hidden cursor-pointer"
+                                className="relative h-56 sm:h-72 w-full overflow-hidden cursor-pointer"
                               >
                                 <img
                                   src={photo.imageUrl}
@@ -1321,37 +1440,37 @@ export default function App() {
                                 />
                                 <div className="absolute inset-0 bg-gradient-to-t from-[#0B0D11] via-black/20 to-transparent" />
 
-                                <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/65 backdrop-blur-md text-[11px] text-slate-200 border border-white/10">
+                                <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/70 backdrop-blur-md text-[10px] sm:text-[11px] text-slate-200 border border-white/10 max-w-[48%]">
                                   <MapPin className="w-3 h-3 text-amber-400 shrink-0" />
-                                  <span className="truncate max-w-[160px]">{photo.location}</span>
+                                  <span className="truncate">{photo.location}</span>
                                 </div>
 
-                                <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                                <div className="absolute top-3 right-3 flex items-center gap-1.5 max-w-[48%]">
                                   {photo.signalScore && (
-                                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/80 text-slate-950 font-bold text-[10px]">
-                                      {photo.signalScore}% Signal
+                                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/85 text-slate-950 font-bold text-[10px] shrink-0">
+                                      {photo.signalScore}%
                                     </span>
                                   )}
-                                  <span className="px-2.5 py-1 rounded-full bg-black/65 backdrop-blur-md text-[10px] text-slate-300 border border-white/10">
+                                  <span className="px-2.5 py-1 rounded-full bg-black/70 backdrop-blur-md text-[10px] text-slate-200 border border-white/10 truncate">
                                     {photo.sourceName || photo.cameraSpec}
                                   </span>
                                 </div>
                               </div>
 
-                              <div className="p-4 flex-1 flex flex-col justify-between bg-[#121620]">
+                              <div className="p-3.5 sm:p-4 flex-1 flex flex-col justify-between bg-[#121620]">
                                 <p
                                   onClick={() => setSelectedPhoto(photo)}
-                                  className="text-sm text-slate-100 leading-snug mb-3 cursor-pointer hover:text-amber-200 transition line-clamp-2"
+                                  className="text-sm font-medium text-slate-100 leading-snug mb-3 cursor-pointer hover:text-amber-200 transition line-clamp-2"
                                 >
                                   {photo.caption}
                                 </p>
 
-                                <div className="flex items-center justify-between pt-2 border-t border-white/[0.06] text-xs text-slate-400">
-                                  <span className="font-medium text-amber-300/90 truncate max-w-[150px]">
+                                <div className="flex items-center justify-between pt-2.5 border-t border-white/[0.06] text-xs text-slate-400">
+                                  <span className="font-medium text-amber-300/90 truncate max-w-[55%]">
                                     {photo.photographer}
                                   </span>
 
-                                  <div className="flex items-center gap-3">
+                                  <div className="flex items-center gap-3 shrink-0">
                                     <button
                                       onClick={() => toggleLike(photo.id)}
                                       className={`flex items-center gap-1 transition ${
@@ -1398,17 +1517,17 @@ export default function App() {
                 {/* SECTION 2: ARTICLES & BLOGS */}
                 {(activeMediaFilter === "all" || activeMediaFilter === "articles") &&
                   filteredFeed.articles.length > 0 && (
-                    <div className="space-y-4">
+                    <div className="space-y-3.5 sm:space-y-4">
                       <div className="flex items-center justify-between px-1">
-                        <div className="flex items-center gap-2">
-                          <span className="p-2 rounded-xl bg-amber-500/15 text-amber-300 border border-amber-500/25">
+                        <div className="flex items-center gap-2.5">
+                          <span className="p-2 rounded-xl bg-amber-500/15 text-amber-300 border border-amber-500/25 shrink-0">
                             <BookOpen className="w-4 h-4" />
                           </span>
                           <div>
-                            <h2 className="text-lg font-semibold text-white">
+                            <h2 className="font-display text-base sm:text-lg font-bold text-white">
                               Filtered Blogs, Discussions & Deep-Dive Articles
                             </h2>
-                            <p className="text-xs text-slate-400">
+                            <p className="text-[11px] sm:text-xs text-slate-400">
                               High-signal stories, official announcements & independent reviews
                             </p>
                           </div>
@@ -1421,13 +1540,13 @@ export default function App() {
                           return (
                             <article
                               key={article.id}
-                              className="group rounded-3xl bg-[#121620]/90 hover:bg-[#161B28] border border-white/[0.08] hover:border-amber-400/35 p-5 sm:p-6 transition-all duration-200 shadow-lg shadow-black/20"
+                              className="group rounded-2xl sm:rounded-3xl bg-[#121620]/95 hover:bg-[#161B28] border border-white/[0.08] hover:border-amber-400/35 p-4 sm:p-6 transition-all duration-200 shadow-lg shadow-black/20"
                             >
-                              <div className="flex flex-col sm:flex-row gap-5">
+                              <div className="flex flex-col sm:flex-row gap-4 sm:gap-5">
                                 {article.coverImage && (
                                   <div
                                     onClick={() => setSelectedArticle(article)}
-                                    className="sm:w-48 sm:h-36 h-44 w-full rounded-2xl overflow-hidden shrink-0 cursor-pointer border border-white/[0.07]"
+                                    className="sm:w-48 sm:h-36 h-44 w-full rounded-xl sm:rounded-2xl overflow-hidden shrink-0 cursor-pointer border border-white/[0.07]"
                                   >
                                     <img
                                       src={article.coverImage}
@@ -1442,63 +1561,76 @@ export default function App() {
                                 )}
 
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
-                                    <div className="flex items-center gap-2.5">
+                                  {/* Row 1: Author + Timestamp on left, Signal Score on right */}
+                                  <div className="flex items-center justify-between gap-2 mb-2">
+                                    <div className="flex items-center gap-2 min-w-0">
                                       <img
                                         src={article.authorAvatar}
                                         alt={article.author}
-                                        className="w-7 h-7 rounded-full object-cover border border-white/15"
+                                        className="w-6 h-6 sm:w-7 sm:h-7 rounded-full object-cover border border-white/15 shrink-0"
                                       />
-                                      <span className="text-xs font-medium text-slate-300">
+                                      <span className="text-xs font-semibold text-slate-200 truncate">
                                         {article.author}
                                       </span>
-                                      <span className="text-slate-600">•</span>
-                                      <span className="text-xs text-slate-400">
+                                      <span className="text-slate-600 shrink-0">•</span>
+                                      <span className="text-[11px] sm:text-xs text-slate-400 shrink-0">
                                         {article.publishedAt}
                                       </span>
                                     </div>
 
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      {article.signalScore && (
-                                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                                          {article.signalScore}% Signal
-                                        </span>
-                                      )}
-                                      {article.sourceName && (
-                                        <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-cyan-400/10 text-cyan-300 border border-cyan-400/20">
-                                          {article.sourceName}
-                                        </span>
-                                      )}
-                                      <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-amber-400/10 text-amber-300 border border-amber-400/20">
-                                        {article.category}
+                                    {article.signalScore && (
+                                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0">
+                                        {article.signalScore}% Signal
                                       </span>
-                                      <span className="text-xs text-slate-400 flex items-center gap-1">
-                                        <Clock className="w-3 h-3" />
-                                        {article.readTime}
+                                    )}
+                                  </div>
+
+                                  {/* Row 2: Source, Category, Claim Distinction & Read Time */}
+                                  <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
+                                    {article.sourceName && (
+                                      <span className="text-[10px] sm:text-[11px] px-2 py-0.5 rounded-full bg-cyan-400/10 text-cyan-300 border border-cyan-400/20 font-medium">
+                                        {article.sourceName}
                                       </span>
-                                    </div>
+                                    )}
+                                    <span className="text-[10px] sm:text-[11px] px-2 py-0.5 rounded-full bg-amber-400/10 text-amber-300 border border-amber-400/20 font-medium">
+                                      {article.category}
+                                    </span>
+                                    {article.claimDistinction === "official_announcement" && (
+                                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-400/15 text-purple-200 border border-purple-400/30">
+                                        Official Announcement
+                                      </span>
+                                    )}
+                                    {article.claimDistinction === "independent_review" && (
+                                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-400/15 text-teal-200 border border-teal-400/30">
+                                        Independent Review
+                                      </span>
+                                    )}
+                                    <span className="text-[11px] text-slate-400 flex items-center gap-1 ml-auto sm:ml-1">
+                                      <Clock className="w-3 h-3" />
+                                      {article.readTime}
+                                    </span>
                                   </div>
 
                                   <h3
                                     onClick={() => setSelectedArticle(article)}
-                                    className="text-lg sm:text-xl font-semibold text-white group-hover:text-amber-300 transition cursor-pointer mb-2"
+                                    className="font-display text-base sm:text-xl font-bold text-white group-hover:text-amber-300 transition cursor-pointer mb-2 leading-snug"
                                   >
                                     {article.title}
                                   </h3>
 
-                                  <p className="text-sm text-slate-300 leading-relaxed mb-4 line-clamp-3">
+                                  <p className="text-xs sm:text-sm text-slate-300 leading-relaxed mb-3.5 line-clamp-3">
                                     {article.snippet}
                                   </p>
                                 </div>
                               </div>
 
-                              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-white/[0.06]">
-                                <div className="flex flex-wrap items-center gap-1.5">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 pt-3 border-t border-white/[0.06]">
+                                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5 sm:pb-0 sm:flex-wrap">
                                   {article.tags?.map((tag: string, idx: number) => (
                                     <button
                                       key={idx}
                                       onClick={() => setKeywordFilter(tag.replace(/^#/, ""))}
-                                      className="text-[11px] text-slate-400 hover:text-amber-300 bg-white/[0.04] hover:bg-amber-400/10 px-2.5 py-0.5 rounded-md transition"
+                                      className="shrink-0 text-[11px] text-slate-400 hover:text-amber-300 bg-white/[0.04] hover:bg-amber-400/10 px-2.5 py-0.5 rounded-md transition"
                                       title="Filter feed by this tag"
                                     >
                                       {tag}
@@ -1506,62 +1638,66 @@ export default function App() {
                                   ))}
                                 </div>
 
-                                <div className="flex items-center gap-3">
-                                  <button
-                                    onClick={() => toggleLike(article.id)}
-                                    className={`text-xs flex items-center gap-1 transition ${
-                                      isLiked ? "text-rose-400 font-semibold" : "text-slate-400 hover:text-white"
-                                    }`}
-                                  >
-                                    <Heart
-                                      className={`w-3.5 h-3.5 ${isLiked ? "fill-rose-400" : ""}`}
-                                    />
-                                    <span>{article.likes + (isLiked ? 1 : 0)}</span>
-                                  </button>
-
-                                  <button
-                                    onClick={() => toggleBookmark(article, "article")}
-                                    className={`text-xs flex items-center gap-1 transition ${
-                                      isBookmarked(article.id)
-                                        ? "text-amber-400 font-semibold"
-                                        : "text-slate-400 hover:text-white"
-                                    }`}
-                                  >
-                                    <Bookmark
-                                      className={`w-3.5 h-3.5 ${
-                                        isBookmarked(article.id) ? "fill-amber-400" : ""
+                                <div className="flex items-center justify-between sm:justify-end gap-3 pt-1 sm:pt-0 border-t sm:border-t-0 border-white/[0.04]">
+                                  <div className="flex items-center gap-3.5">
+                                    <button
+                                      onClick={() => toggleLike(article.id)}
+                                      className={`text-xs flex items-center gap-1 transition ${
+                                        isLiked ? "text-rose-400 font-semibold" : "text-slate-400 hover:text-white"
                                       }`}
-                                    />
-                                    <span>Save</span>
-                                  </button>
-
-                                  <button
-                                    onClick={() => handleShareItem(article.title, article.sourceUrl)}
-                                    className="text-xs text-slate-400 hover:text-white flex items-center gap-1 transition"
-                                    title="Share Story Link"
-                                  >
-                                    <Share2 className="w-3.5 h-3.5" />
-                                  </button>
-
-                                  {article.sourceUrl && (
-                                    <a
-                                      href={article.sourceUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-xs text-cyan-300 hover:text-cyan-200 flex items-center gap-1 pl-2 border-l border-white/10"
                                     >
-                                      <span>Source</span>
-                                      <ExternalLink className="w-3 h-3" />
-                                    </a>
-                                  )}
+                                      <Heart
+                                        className={`w-3.5 h-3.5 ${isLiked ? "fill-rose-400" : ""}`}
+                                      />
+                                      <span>{article.likes + (isLiked ? 1 : 0)}</span>
+                                    </button>
 
-                                  <button
-                                    onClick={() => setSelectedArticle(article)}
-                                    className="text-xs font-medium text-amber-300 hover:text-amber-200 flex items-center gap-1 pl-2 border-l border-white/10 cursor-pointer"
-                                  >
-                                    <span>Read Reader View</span>
-                                    <ArrowUpRight className="w-3.5 h-3.5" />
-                                  </button>
+                                    <button
+                                      onClick={() => toggleBookmark(article, "article")}
+                                      className={`text-xs flex items-center gap-1 transition ${
+                                        isBookmarked(article.id)
+                                          ? "text-amber-400 font-semibold"
+                                          : "text-slate-400 hover:text-white"
+                                      }`}
+                                    >
+                                      <Bookmark
+                                        className={`w-3.5 h-3.5 ${
+                                          isBookmarked(article.id) ? "fill-amber-400" : ""
+                                        }`}
+                                      />
+                                      <span>Save</span>
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleShareItem(article.title, article.sourceUrl)}
+                                      className="text-xs text-slate-400 hover:text-white flex items-center gap-1 transition"
+                                      title="Share Story Link"
+                                    >
+                                      <Share2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+
+                                  <div className="flex items-center gap-2.5">
+                                    {article.sourceUrl && (
+                                      <a
+                                        href={article.sourceUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-xs text-cyan-300 hover:text-cyan-200 flex items-center gap-1 pl-2 border-l border-white/10"
+                                      >
+                                        <span>Source</span>
+                                        <ExternalLink className="w-3 h-3" />
+                                      </a>
+                                    )}
+
+                                    <button
+                                      onClick={() => setSelectedArticle(article)}
+                                      className="text-xs font-semibold text-amber-300 hover:text-amber-200 flex items-center gap-1 pl-2 border-l border-white/10 cursor-pointer"
+                                    >
+                                      <span>Reader</span>
+                                      <ArrowUpRight className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             </article>
@@ -1574,31 +1710,31 @@ export default function App() {
                 {/* SECTION 3: VLOGS */}
                 {(activeMediaFilter === "all" || activeMediaFilter === "vlogs") &&
                   filteredFeed.vlogs.length > 0 && (
-                    <div className="space-y-4">
+                    <div className="space-y-3.5 sm:space-y-4">
                       <div className="flex items-center justify-between px-1">
-                        <div className="flex items-center gap-2">
-                          <span className="p-2 rounded-xl bg-rose-500/15 text-rose-300 border border-rose-500/25">
+                        <div className="flex items-center gap-2.5">
+                          <span className="p-2 rounded-xl bg-rose-500/15 text-rose-300 border border-rose-500/25 shrink-0">
                             <Video className="w-4 h-4" />
                           </span>
                           <div>
-                            <h2 className="text-lg font-semibold text-white">
+                            <h2 className="font-display text-base sm:text-lg font-bold text-white">
                               Live Related Vlogs & Video Streams
                             </h2>
-                            <p className="text-xs text-slate-400">
+                            <p className="text-[11px] sm:text-xs text-slate-400">
                               Broadcaster highlights, interviews, reviews & video explainers playable inside AiRA
                             </p>
                           </div>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4">
                         {filteredFeed.vlogs.map((vlog: any) => (
                           <div
                             key={vlog.id}
                             onClick={() => setSelectedVlog(vlog)}
-                            className="group rounded-3xl overflow-hidden bg-[#121620] border border-white/[0.08] hover:border-rose-400/40 transition cursor-pointer flex flex-col justify-between shadow-xl shadow-black/10"
+                            className="group rounded-2xl sm:rounded-3xl overflow-hidden bg-[#121620] border border-white/[0.08] hover:border-rose-400/40 transition cursor-pointer flex flex-col justify-between shadow-xl shadow-black/10"
                           >
-                            <div className="relative h-48 overflow-hidden">
+                            <div className="relative h-44 sm:h-48 overflow-hidden">
                               <img
                                 src={vlog.thumbnailUrl}
                                 alt={vlog.title}
@@ -1609,7 +1745,7 @@ export default function App() {
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                               />
                               <div className="absolute inset-0 bg-black/40 group-hover:bg-black/25 transition flex items-center justify-center">
-                                <div className="w-12 h-12 rounded-full bg-rose-500/90 text-white flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform">
+                                <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-rose-500/90 text-white flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform">
                                   <Play className="w-5 h-5 fill-white ml-0.5" />
                                 </div>
                               </div>
@@ -1623,15 +1759,15 @@ export default function App() {
                               </span>
                             </div>
 
-                            <div className="p-5 flex-1 flex flex-col justify-between">
+                            <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between">
                               <div>
                                 <div className="flex items-center justify-between text-xs text-slate-400 mb-1.5">
-                                  <span className="font-medium text-rose-300">
+                                  <span className="font-semibold text-rose-300 truncate max-w-[65%]">
                                     {vlog.creator}
                                   </span>
-                                  <span>{vlog.views}</span>
+                                  <span className="shrink-0">{vlog.views}</span>
                                 </div>
-                                <h3 className="text-base font-semibold text-white group-hover:text-rose-200 transition mb-2.5">
+                                <h3 className="font-display text-base font-bold text-white group-hover:text-rose-200 transition mb-2.5 leading-snug">
                                   {vlog.title}
                                 </h3>
                               </div>
@@ -1647,17 +1783,17 @@ export default function App() {
                   )}
 
                 {/* RELATED TOPICS & PROGRESSIVE DISCOVERY BAR */}
-                <div className="rounded-3xl bg-[#121620]/90 border border-white/[0.08] p-5 sm:p-6 space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="rounded-2xl sm:rounded-3xl bg-[#121620]/95 border border-white/[0.08] p-4 sm:p-6 space-y-3.5 sm:space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
                     <div className="flex items-center gap-2">
-                      <Compass className="w-4 h-4 text-cyan-400" />
-                      <h3 className="text-sm font-semibold text-white">
+                      <Compass className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <h3 className="font-display text-sm font-bold text-white">
                         Explore Related Topics & Sub-Streams
                       </h3>
                     </div>
                     <button
                       onClick={handleLoadMoreItems}
-                      className="px-3.5 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.1] text-xs font-medium text-amber-300 transition flex items-center gap-1.5"
+                      className="w-full sm:w-auto justify-center px-3.5 py-2 sm:py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.1] text-xs font-semibold text-amber-300 transition flex items-center gap-1.5"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
                       <span>Load More Stories & Media</span>
@@ -1669,19 +1805,19 @@ export default function App() {
                       <button
                         key={idx}
                         onClick={() => handleSendQuery(topic)}
-                        className="px-3.5 py-2 rounded-xl bg-[#0B0D11] hover:bg-amber-400/15 border border-white/[0.08] hover:border-amber-400/40 text-xs text-slate-200 hover:text-amber-200 transition flex items-center gap-1.5"
+                        className="px-3 py-2 rounded-xl bg-[#0B0D11] hover:bg-amber-400/15 border border-white/[0.08] hover:border-amber-400/40 text-xs text-slate-200 hover:text-amber-200 transition flex items-center gap-1.5"
                       >
                         <span>{topic}</span>
-                        <ArrowUpRight className="w-3.5 h-3.5 text-slate-500" />
+                        <ArrowUpRight className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                       </button>
                     ))}
                   </div>
                 </div>
               </>
             ) : (
-              <div className="rounded-3xl bg-[#121620] border border-white/[0.08] p-8 space-y-6 animate-pulse">
+              <div className="rounded-2xl sm:rounded-3xl bg-[#121620] border border-white/[0.08] p-6 sm:p-8 space-y-6 animate-pulse">
                 <div className="h-7 bg-white/10 rounded w-1/2" />
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="h-56 bg-white/5 rounded-2xl" />
                   <div className="h-56 bg-white/5 rounded-2xl" />
                 </div>
@@ -1689,6 +1825,46 @@ export default function App() {
               </div>
             )}
           </section>
+
+          {/* MOBILE FIXED BOTTOM ASK BAR (Shown on mobile when browsing Social Feed) */}
+          {mobileActivePane === "feed" && (
+            <div className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-[#0B0D11]/95 backdrop-blur-xl border-t border-white/[0.1] px-3.5 py-2.5 pb-safe shadow-2xl">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendQuery();
+                }}
+                className="flex items-center gap-2 max-w-xl mx-auto"
+              >
+                <input
+                  type="text"
+                  value={inputQuery}
+                  onChange={(e) => setInputQuery(e.target.value)}
+                  placeholder="Ask AiRA any live topic or follow-up..."
+                  className="flex-1 min-w-0 bg-[#141926] border border-white/[0.12] focus:border-amber-400/60 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleToggleVoice}
+                  className={`p-2.5 rounded-xl border shrink-0 transition ${
+                    isVoiceSimulated
+                      ? "bg-rose-500/20 border-rose-500/40 text-rose-300 animate-pulse"
+                      : "bg-[#141926] border-white/[0.1] text-slate-300"
+                  }`}
+                  title="Voice Input"
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+                <button
+                  type="submit"
+                  disabled={!inputQuery.trim() || isGenerating}
+                  className="p-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 disabled:opacity-40 text-slate-950 font-semibold shrink-0"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </form>
+            </div>
+          )}
         </main>
       )}
 
@@ -1696,21 +1872,21 @@ export default function App() {
       {selectedArticle && (
         <div
           onClick={() => setSelectedArticle(null)}
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-[#131824] border border-white/15 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6 sm:p-8 shadow-2xl space-y-5"
+            className="bg-[#131824] border-t sm:border border-white/15 rounded-t-3xl sm:rounded-3xl max-w-2xl w-full max-h-[90dvh] sm:max-h-[85vh] overflow-y-auto p-5 sm:p-8 pb-safe shadow-2xl space-y-4 sm:space-y-5"
           >
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <div className="flex items-center gap-3">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3.5 sm:pb-4">
+              <div className="flex items-center gap-3 min-w-0">
                 <img
                   src={selectedArticle.authorAvatar}
                   alt={selectedArticle.author}
-                  className="w-10 h-10 rounded-full object-cover"
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover shrink-0"
                 />
-                <div>
-                  <p className="text-sm font-semibold text-white">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-white truncate">
                     {selectedArticle.author}
                   </p>
                   <p className="text-xs text-slate-400">
@@ -1720,7 +1896,7 @@ export default function App() {
               </div>
               <button
                 onClick={() => setSelectedArticle(null)}
-                className="p-2 rounded-full bg-white/5 hover:bg-white/10 text-slate-300"
+                className="p-2 rounded-full bg-white/5 hover:bg-white/10 text-slate-300 shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1737,26 +1913,26 @@ export default function App() {
               )}
             </div>
 
-            <h2 className="text-2xl sm:text-3xl font-bold text-white leading-tight">
+            <h2 className="font-display text-xl sm:text-3xl font-bold text-white leading-tight">
               {selectedArticle.title}
             </h2>
 
             {selectedArticle.coverImage && (
-              <div className="rounded-2xl overflow-hidden max-h-64 bg-black">
+              <div className="rounded-2xl overflow-hidden max-h-56 sm:max-h-64 bg-black">
                 <img
                   src={selectedArticle.coverImage}
                   alt={selectedArticle.title}
-                  className="w-full h-64 object-cover"
+                  className="w-full h-56 sm:h-64 object-cover"
                 />
               </div>
             )}
 
-            <p className="text-base text-slate-200 leading-relaxed whitespace-pre-line">
+            <p className="text-sm sm:text-base text-slate-200 leading-relaxed whitespace-pre-line">
               {selectedArticle.fullContent}
             </p>
 
-            <div className="pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap gap-2">
+            <div className="pt-4 border-t border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex flex-wrap gap-1.5 sm:gap-2">
                 {selectedArticle.tags?.map((t: string, i: number) => (
                   <span
                     key={i}
@@ -1766,13 +1942,13 @@ export default function App() {
                   </span>
                 ))}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
                 {selectedArticle.sourceUrl && (
                   <a
                     href={selectedArticle.sourceUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-medium text-xs flex items-center gap-1.5 transition"
+                    className="flex-1 sm:flex-initial justify-center px-4 py-2.5 sm:py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-medium text-xs flex items-center gap-1.5 transition"
                   >
                     <span>Open Live Source</span>
                     <ExternalLink className="w-3.5 h-3.5" />
@@ -1783,7 +1959,7 @@ export default function App() {
                     handleSendQuery(`Tell me more about: ${selectedArticle.title}`);
                     setSelectedArticle(null);
                   }}
-                  className="px-4 py-2 rounded-xl bg-amber-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5 hover:bg-amber-300 transition"
+                  className="flex-1 sm:flex-initial justify-center px-4 py-2.5 sm:py-2 rounded-xl bg-amber-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5 hover:bg-amber-300 transition"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>Discuss with AiRA</span>
@@ -1798,48 +1974,48 @@ export default function App() {
       {selectedPhoto && (
         <div
           onClick={() => setSelectedPhoto(null)}
-          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-[#121620] border border-white/15 rounded-3xl max-w-3xl w-full overflow-hidden shadow-2xl"
+            className="bg-[#121620] border-t sm:border border-white/15 rounded-t-3xl sm:rounded-3xl max-w-3xl w-full max-h-[90dvh] overflow-y-auto shadow-2xl pb-safe"
           >
-            <div className="relative max-h-[65vh] bg-black flex items-center justify-center">
+            <div className="relative max-h-[55vh] sm:max-h-[65vh] bg-black flex items-center justify-center">
               <img
                 src={selectedPhoto.imageUrl}
                 alt={selectedPhoto.caption}
-                className="max-h-[65vh] w-auto object-contain"
+                className="max-h-[55vh] sm:max-h-[65vh] w-auto object-contain"
               />
               <button
                 onClick={() => setSelectedPhoto(null)}
-                className="absolute top-4 right-4 p-2 rounded-full bg-black/70 text-white hover:bg-black"
+                className="absolute top-3.5 right-3.5 p-2 rounded-full bg-black/70 text-white hover:bg-black"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-amber-300 mb-1">
-                  <span>{selectedPhoto.photographer}</span>
+                  <span className="font-semibold">{selectedPhoto.photographer}</span>
                   <span>•</span>
                   <span>{selectedPhoto.location}</span>
                   <span>•</span>
                   <span className="text-slate-400">{selectedPhoto.cameraSpec}</span>
                 </div>
-                <p className="text-base text-white">{selectedPhoto.caption}</p>
+                <p className="text-sm sm:text-base text-white font-medium">{selectedPhoto.caption}</p>
                 {selectedPhoto.contextualText && (
                   <p className="text-xs text-slate-400 mt-1.5 line-clamp-2">
                     {selectedPhoto.contextualText}
                   </p>
                 )}
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
                 {selectedPhoto.sourceUrl && (
                   <a
                     href={selectedPhoto.sourceUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-cyan-300 flex items-center gap-1.5"
+                    className="flex-1 sm:flex-initial justify-center px-3.5 py-2.5 sm:py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-cyan-300 flex items-center gap-1.5"
                   >
                     <span>Source</span>
                     <ExternalLink className="w-3.5 h-3.5" />
@@ -1847,7 +2023,7 @@ export default function App() {
                 )}
                 <button
                   onClick={() => toggleBookmark(selectedPhoto, "photolog")}
-                  className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-white flex items-center gap-1.5"
+                  className="flex-1 sm:flex-initial justify-center px-4 py-2.5 sm:py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-white flex items-center gap-1.5"
                 >
                   <Bookmark className="w-3.5 h-3.5 text-amber-400" />
                   <span>{isBookmarked(selectedPhoto.id) ? "Saved in Vault" : "Save Photo"}</span>
@@ -1862,13 +2038,13 @@ export default function App() {
       {selectedVlog && (
         <div
           onClick={() => setSelectedVlog(null)}
-          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-[#131824] border border-white/15 rounded-3xl max-w-2xl w-full overflow-hidden shadow-2xl"
+            className="bg-[#131824] border-t sm:border border-white/15 rounded-t-3xl sm:rounded-3xl max-w-2xl w-full max-h-[90dvh] overflow-y-auto shadow-2xl pb-safe"
           >
-            <div className="relative h-72 sm:h-96 bg-black">
+            <div className="relative h-60 sm:h-96 bg-black">
               {selectedVlog.embedUrl ? (
                 <iframe
                   src={selectedVlog.embedUrl}
@@ -1885,13 +2061,13 @@ export default function App() {
                     className="w-full h-full object-cover opacity-65"
                   />
                   <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gradient-to-t from-[#131824] via-black/40 to-transparent">
-                    <div className="w-16 h-16 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-2xl mb-3 animate-pulse">
-                      <Volume2 className="w-7 h-7" />
+                    <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-2xl mb-3 animate-pulse">
+                      <Volume2 className="w-6 h-6 sm:w-7 sm:h-7" />
                     </div>
-                    <span className="text-xs uppercase tracking-widest px-3 py-1 rounded-full bg-rose-500/20 text-rose-200 border border-rose-400/30 mb-2">
+                    <span className="text-[11px] sm:text-xs uppercase tracking-widest px-3 py-1 rounded-full bg-rose-500/20 text-rose-200 border border-rose-400/30 mb-2">
                       Playing Video Stream Preview • {selectedVlog.duration}
                     </span>
-                    <p className="text-sm text-slate-200 max-w-md italic">
+                    <p className="text-xs sm:text-sm text-slate-200 max-w-md italic">
                       {selectedVlog.highlightQuote}
                     </p>
                   </div>
@@ -1899,25 +2075,25 @@ export default function App() {
               )}
               <button
                 onClick={() => setSelectedVlog(null)}
-                className="absolute top-4 right-4 p-2 rounded-full bg-black/70 text-white hover:bg-black z-10"
+                className="absolute top-3.5 right-3.5 p-2 rounded-full bg-black/70 text-white hover:bg-black z-10"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <p className="text-xs text-rose-300 font-medium mb-1">
                   {selectedVlog.creator} • {selectedVlog.views}
                 </p>
-                <h3 className="text-lg font-bold text-white">{selectedVlog.title}</h3>
+                <h3 className="font-display text-base sm:text-lg font-bold text-white">{selectedVlog.title}</h3>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
                 {selectedVlog.sourceUrl && (
                   <a
                     href={selectedVlog.sourceUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-cyan-300 flex items-center gap-1.5"
+                    className="flex-1 sm:flex-initial justify-center px-3.5 py-2.5 sm:py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-cyan-300 flex items-center gap-1.5"
                   >
                     <span>Watch on Source</span>
                     <ExternalLink className="w-3.5 h-3.5" />
@@ -1930,7 +2106,7 @@ export default function App() {
                     );
                     setSelectedVlog(null);
                   }}
-                  className="px-4 py-2 rounded-xl bg-amber-400 text-slate-950 font-semibold text-xs"
+                  className="flex-1 sm:flex-initial justify-center px-4 py-2.5 sm:py-2 rounded-xl bg-amber-400 text-slate-950 font-semibold text-xs"
                 >
                   Ask AiRA About This
                 </button>
@@ -1944,16 +2120,16 @@ export default function App() {
       {showApiKeyModal && (
         <div
           onClick={() => setShowApiKeyModal(false)}
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-[#131824] border border-white/15 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5"
+            className="bg-[#131824] border-t sm:border border-white/15 rounded-t-3xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 pb-safe shadow-2xl space-y-5"
           >
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2">
                 <SlidersHorizontal className="w-4 h-4 text-cyan-400" />
-                <h3 className="font-semibold text-white text-base">
+                <h3 className="font-display font-bold text-white text-base">
                   Live Curation & Filter Settings
                 </h3>
               </div>
@@ -2014,7 +2190,7 @@ export default function App() {
                   setShowApiKeyModal(false);
                   triggerToast("Saved Live Filter & AI preferences");
                 }}
-                className="px-4 py-2 rounded-xl bg-cyan-400 text-slate-950 font-semibold text-xs"
+                className="w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded-xl bg-cyan-400 text-slate-950 font-semibold text-xs"
               >
                 Done
               </button>
@@ -2031,13 +2207,13 @@ export default function App() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-[#11151E] border-l border-white/10 h-full p-6 flex flex-col justify-between overflow-y-auto"
+            className="w-full max-w-md bg-[#11151E] border-l border-white/10 h-full p-5 sm:p-6 pb-safe flex flex-col justify-between overflow-y-auto"
           >
             <div>
               <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-5">
                 <div className="flex items-center gap-2">
                   <Bookmark className="w-4 h-4 text-amber-400" />
-                  <h3 className="font-semibold text-white">Balaji’s Saved Vault</h3>
+                  <h3 className="font-display font-bold text-white">Balaji’s Saved Vault</h3>
                 </div>
                 <button
                   onClick={() => setShowSavedDrawer(false)}
@@ -2098,8 +2274,8 @@ export default function App() {
       )}
 
       {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-2xl bg-amber-400 text-slate-950 font-semibold text-xs shadow-2xl flex items-center gap-2 animate-bounce">
-          <Check className="w-4 h-4" />
+        <div className="fixed bottom-20 lg:bottom-5 right-4 sm:right-5 z-50 px-4 py-2.5 rounded-2xl bg-amber-400 text-slate-950 font-semibold text-xs shadow-2xl flex items-center gap-2 animate-bounce">
+          <Check className="w-4 h-4 shrink-0" />
           <span>{toastMessage}</span>
         </div>
       )}
