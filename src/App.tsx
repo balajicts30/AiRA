@@ -4,15 +4,15 @@ import {
   Send,
   Mic,
   MicOff,
-  Compass,
   BookOpen,
   Camera,
   Video,
   Heart,
   Bookmark,
+  Share2,
   Clock,
   ArrowUpRight,
-  User,
+  Play,
   RotateCcw,
   Check,
   Flame,
@@ -21,35 +21,93 @@ import {
   Search,
   Layers,
   X,
+  Volume2,
   MessageSquare,
   PlusCircle,
   SlidersHorizontal,
   Globe,
   ShieldCheck,
-  ShieldAlert,
   Filter,
   RefreshCw,
   ExternalLink,
-  FileCheck2,
-  AlertTriangle,
-  Database,
-  CheckCircle2,
-  XCircle,
-  Ban,
-  Link2
+  KeyRound,
+  Compass,
+  Radio
 } from "lucide-react";
 import { globalSearchOrchestrator } from "./engine/searchOrchestrator";
-import { globalSourceRegistry } from "./engine/sourceRegistry";
-import {
-  ContentCategory,
-  RegistryAuditEntry,
-  RejectedSourceLog,
-  SourceApprovalStatus,
-  SourceRegistryRecord,
-  StandardizedSearchResult,
-  StructuredSportsEvent,
-  TrustedSearchEngineResponse
-} from "./engine/types";
+import { SocialDiscoveryFeed, TrustedSearchEngineResponse } from "./engine/types";
+
+const FALLBACK_STAGE_IMAGE =
+  "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=900&auto=format&fit=crop&q=80";
+
+// ============================================================================
+// CLIENT-TO-BACKEND CURATED FEED FETCHER
+// Uses the backend /api/trusted-search pipeline (with isomorphic fallback)
+// while keeping source governance invisible in the background.
+// ============================================================================
+async function fetchLiveCuratedFeed(
+  userQuery: string,
+  options: {
+    timeframe?: "all" | "day" | "week" | "month" | "year";
+    strictFilter?: boolean;
+    geminiApiKey?: string;
+    conversationContext?: string;
+    page?: number;
+    pageSize?: number;
+    bypassCache?: boolean;
+  } = {}
+): Promise<SocialDiscoveryFeed> {
+  const {
+    geminiApiKey = "",
+    page = 1,
+    pageSize = 12,
+    bypassCache = false
+  } = options;
+
+  let responsePayload: TrustedSearchEngineResponse | null = null;
+
+  try {
+    const res = await fetch("/api/trusted-search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: userQuery,
+        bypassCache,
+        geminiApiKey: geminiApiKey || undefined,
+        page,
+        pageSize
+      })
+    });
+    if (res.ok) {
+      responsePayload = await res.json();
+    }
+  } catch {
+    // Fallback to in-process orchestrator if static preview environment
+  }
+
+  if (!responsePayload) {
+    responsePayload = await globalSearchOrchestrator.executeSearch({
+      query: userQuery,
+      bypassCache,
+      geminiApiKey: geminiApiKey || undefined,
+      page,
+      pageSize
+    });
+  }
+
+  if (responsePayload.socialFeed) {
+    return responsePayload.socialFeed;
+  }
+
+  // Fallback safety wrapper if socialFeed was omitted
+  const fallbackExec = await globalSearchOrchestrator.executeSearch({
+    query: userQuery,
+    bypassCache: true,
+    page,
+    pageSize
+  });
+  return fallbackExec.socialFeed!;
+}
 
 // ==========================================
 // CLEAR, UNMISTAKABLE NEON VECTOR AiRA LOGO
@@ -145,7 +203,7 @@ function AiraNeonLogo({ className = "h-9 w-auto" }: { className?: string }) {
           strokeLinejoin="round"
         />
 
-        {/* === LETTER 4: 'A' === */}
+        {/* === LETTER 4: 'A' (Crisp & Complete!) === */}
         <path
           d="M 264 96 L 298 20 C 300.5 14.5 305.5 14.5 308 20 L 342 96"
           stroke={`url(#${gradId})`}
@@ -182,137 +240,43 @@ function AiraAssistantBadge({ size = "sm" }: { size?: "sm" | "md" }) {
   );
 }
 
-function formatDisplayTimestamp(isoString: string | null): string {
-  if (!isoString) return "Timestamp unverified";
-  try {
-    const d = new Date(isoString);
-    if (isNaN(d.getTime())) return "Timestamp unverified";
-    return d.toLocaleString([], {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit"
-    });
-  } catch {
-    return "Timestamp unverified";
-  }
-}
-
-function getVerificationBadgeMeta(item: StandardizedSearchResult): {
-  label: string;
-  className: string;
-} {
-  if (item.verification_status === "primary_official") {
-    return {
-      label: `Tier 1 Primary Official (${item.source_name})`,
-      className: "bg-emerald-500/15 text-emerald-300 border-emerald-400/35"
-    };
-  }
-  if (item.verification_status === "corroborated") {
-    return {
-      label: `Corroborated (${item.corroboration_count} Independent Approved Sources)`,
-      className: "bg-cyan-500/15 text-cyan-300 border-cyan-400/35"
-    };
-  }
-  if (item.is_syndicated_wire) {
-    return {
-      label: `Syndicated Wire Report (${item.wire_agency || item.source_name})`,
-      className: "bg-purple-500/15 text-purple-300 border-purple-400/35"
-    };
-  }
-  return {
-    label: `Single-Source Report (Approved Tier ${item.source_tier})`,
-    className: "bg-amber-500/15 text-amber-300 border-amber-400/35"
-  };
-}
-
-function getFreshnessBadgeMeta(status: StandardizedSearchResult["freshness_status"]): {
-  label: string;
-  className: string;
-} {
-  switch (status) {
-    case "live":
-      return {
-        label: "Freshness: Live Window",
-        className: "bg-emerald-500/20 text-emerald-300 border-emerald-400/40"
-      };
-    case "fresh":
-      return {
-        label: "Freshness: Verified Fresh",
-        className: "bg-teal-500/15 text-teal-300 border-teal-400/30"
-      };
-    case "recent":
-      return {
-        label: "Freshness: Within Policy",
-        className: "bg-sky-500/15 text-sky-300 border-sky-400/30"
-      };
-    case "historical_valid":
-      return {
-        label: "Archival / Historical Record",
-        className: "bg-indigo-500/15 text-indigo-300 border-indigo-400/30"
-      };
-    case "stale":
-      return {
-        label: "Stale (Exceeded Policy)",
-        className: "bg-rose-500/20 text-rose-300 border-rose-400/40"
-      };
-    default:
-      return {
-        label: "Freshness: Timestamp Unverified",
-        className: "bg-slate-500/20 text-slate-300 border-slate-400/30"
-      };
-  }
-}
-
-interface ConversationTurn {
-  id: string;
-  userQuery: string;
-  timestamp: string;
-  engineResponse: TrustedSearchEngineResponse;
-}
-
 export default function App() {
-  const [viewMode, setViewMode] = useState<"greeting" | "conversation">("greeting");
+  const [viewMode, setViewMode] = useState("greeting");
   const [inputQuery, setInputQuery] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isVoiceSimulated, setIsVoiceSimulated] = useState(false);
 
-  // Interactive Filter Controls
-  const [activeDataTypeFilter, setActiveDataTypeFilter] = useState<
-    "all" | "article" | "primary" | "scores"
-  >("all");
-  const [activeTierFilter, setActiveTierFilter] = useState<"all" | 1 | 2>("all");
-  const [activeSourceFilter, setActiveSourceFilter] = useState<string>("all");
+  // Interactive Feed Filter States
+  const [activeMediaFilter, setActiveMediaFilter] = useState("all"); // 'all' | 'articles' | 'photologs' | 'vlogs'
+  const [activeSourceFilter, setActiveSourceFilter] = useState("all");
+  const [activeTimeframe, setActiveTimeframe] = useState<"all" | "day" | "week" | "month" | "year">("all");
+  const [activeSortBy, setActiveSortBy] = useState<"signal" | "latest" | "popular">("signal");
   const [keywordFilter, setKeywordFilter] = useState("");
+  const [strictSignalOnly, setStrictSignalOnly] = useState(true);
+  const [minSignalScore, setMinSignalScore] = useState(75);
   const [showFilterPanel, setShowFilterPanel] = useState(true);
+  const [visibleCountMultiplier, setVisibleCountMultiplier] = useState(1);
+  const [hasNewLiveUpdateBanner, setHasNewLiveUpdateBanner] = useState(false);
 
-  // Conversation State
-  const [turns, setTurns] = useState<ConversationTurn[]>([]);
+  // Optional Gemini Key state (persisted in localStorage)
+  const [geminiApiKey, setGeminiApiKey] = useState(() => {
+    try {
+      return localStorage.getItem("aira_gemini_api_key") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+
+  const [turns, setTurns] = useState<any[]>([]);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
-
-  // User Interactions (Bookmarks, Modals, Admin Console)
   const [likedIds, setLikedIds] = useState<Record<string, boolean>>({});
-  const [bookmarkedItems, setBookmarkedItems] = useState<StandardizedSearchResult[]>([]);
-  const [selectedResult, setSelectedResult] = useState<StandardizedSearchResult | null>(null);
+  const [bookmarkedItems, setBookmarkedItems] = useState<any[]>([]);
+  const [selectedArticle, setSelectedArticle] = useState<any>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<any>(null);
+  const [selectedVlog, setSelectedVlog] = useState<any>(null);
   const [showSavedDrawer, setShowSavedDrawer] = useState(false);
-  const [showRegistryModal, setShowRegistryModal] = useState(false);
-  const [registryTab, setRegistryTab] = useState<"sources" | "rejected" | "audit">("sources");
-  const [registryFilterCategory, setRegistryFilterCategory] = useState<string>("all");
-  const [registrySources, setRegistrySources] = useState<SourceRegistryRecord[]>(() =>
-    globalSourceRegistry.getAllSources()
-  );
-  const [rejectedLogs, setRejectedLogs] = useState<RejectedSourceLog[]>(() =>
-    globalSourceRegistry.getRejectedLogs(50)
-  );
-  const [auditTrail, setAuditTrail] = useState<RegistryAuditEntry[]>(() =>
-    globalSourceRegistry.getAuditTrail(50)
-  );
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  // New Source Form State in Admin Modal
-  const [newSourceName, setNewSourceName] = useState("");
-  const [newSourceDomain, setNewSourceDomain] = useState("");
-  const [newSourceCategory, setNewSourceCategory] = useState<ContentCategory>("news");
 
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -320,25 +284,7 @@ export default function App() {
     setToastMessage(msg);
     setTimeout(() => {
       setToastMessage((prev) => (prev === msg ? null : prev));
-    }, 3000);
-  };
-
-  const syncRegistryState = async () => {
-    try {
-      const resp = await fetch("/api/source-registry");
-      if (resp.ok) {
-        const data = await resp.json();
-        if (Array.isArray(data.sources)) setRegistrySources(data.sources);
-        if (Array.isArray(data.rejectedLogs)) setRejectedLogs(data.rejectedLogs);
-        if (Array.isArray(data.auditTrail)) setAuditTrail(data.auditTrail);
-        return;
-      }
-    } catch {
-      // Fallback to in-process singleton if static hosting
-    }
-    setRegistrySources([...globalSourceRegistry.getAllSources()]);
-    setRejectedLogs([...globalSourceRegistry.getRejectedLogs(50)]);
-    setAuditTrail([...globalSourceRegistry.getAuditTrail(50)]);
+    }, 2800);
   };
 
   const getGreetingPhrase = () => {
@@ -350,49 +296,26 @@ export default function App() {
 
   const greetingChips = [
     {
-      label: "Cricket & live sports scores from ICC, BCCI, ESPN & BBC Sport",
-      tag: "Tier-1 Governing Bodies & Approved Broadcasters",
+      label: "Hi, what happened with the cricket last night?",
+      tag: "Live Sports • Match Scorecards, Photos & Highlights",
       icon: Flame
     },
     {
-      label: "OpenAI, NVIDIA & Apple official engineering releases and tech news",
-      tag: "Primary Vendor Docs, GitHub Releases & Ars Technica",
-      icon: FileCheck2
+      label: "Show me travel photologs from Japan",
+      tag: "Visual Stories • Kyoto, Tokyo & Shinkansen Vlogs",
+      icon: Camera
     },
     {
-      label: "Breaking global markets, ISRO science & Japan official travel bulletins",
-      tag: "Reuters, BBC News, The Hindu, NASA & JNTO",
-      icon: Globe
+      label: "Formula 1 race updates, paddock photos & highlights",
+      tag: "Motorsport • Telemetry, Broadcasters & Team Blogs",
+      icon: Video
     }
   ];
 
-  const executeTrustedQuery = async (
-    queryText: string,
-    bypassCache = false
-  ): Promise<TrustedSearchEngineResponse> => {
-    try {
-      const resp = await fetch("/api/trusted-search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: queryText, bypassCache })
-      });
-      if (resp.ok) {
-        const data = (await resp.json()) as TrustedSearchEngineResponse;
-        await syncRegistryState();
-        return data;
-      }
-    } catch {
-      // Fallback to direct engine execution if serverless endpoint is offline
-    }
-    const directResult = await globalSearchOrchestrator.executeSearch({
-      query: queryText,
-      bypassCache
-    });
-    await syncRegistryState();
-    return directResult;
-  };
-
-  const handleSendQuery = async (customPrompt: string | null = null, bypassCache = false) => {
+  const handleSendQuery = async (
+    customPrompt: string | null = null,
+    overrideTimeframe?: "all" | "day" | "week" | "month" | "year"
+  ) => {
     const queryText = (customPrompt !== null ? customPrompt : inputQuery).trim();
     if (!queryText || isGenerating) return;
 
@@ -400,22 +323,36 @@ export default function App() {
     setIsVoiceSimulated(false);
     setViewMode("conversation");
     setIsGenerating(true);
+    setVisibleCountMultiplier(1);
+    setHasNewLiveUpdateBanner(false);
 
     const turnId = `turn-${Date.now()}`;
+    const tf = overrideTimeframe || activeTimeframe;
 
     try {
-      const engineResponse = await executeTrustedQuery(queryText, bypassCache);
+      const historyContext = turns
+        .map((t) => `Balaji: ${t.userQuery} -> AiRA: ${t.feedData.topicTitle}`)
+        .join(" | ");
 
-      const newTurn: ConversationTurn = {
+      const feedData = await fetchLiveCuratedFeed(queryText, {
+        timeframe: tf,
+        strictFilter: strictSignalOnly,
+        geminiApiKey,
+        conversationContext: historyContext,
+        page: 1,
+        pageSize: 14
+      });
+
+      const newTurn = {
         id: turnId,
         userQuery: queryText,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        engineResponse
+        feedData
       };
 
       setTurns((prev) => [...prev, newTurn]);
       setActiveTurnId(turnId);
-      setActiveDataTypeFilter("all");
+      setActiveMediaFilter(feedData.detectedMediaFilter || "all");
       setActiveSourceFilter("all");
       setKeywordFilter("");
     } finally {
@@ -423,95 +360,61 @@ export default function App() {
     }
   };
 
-  const handleRefreshTurn = async () => {
-    if (!currentTurn || isGenerating) return;
-    setIsGenerating(true);
-    try {
-      const refreshed = await executeTrustedQuery(currentTurn.userQuery, true);
-      setTurns((prev) =>
-        prev.map((t) =>
-          t.id === currentTurn.id ? { ...t, engineResponse: refreshed } : t
-        )
-      );
-      triggerToast("Re-verified live sources and refreshed timestamps");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
+  const currentTurn = turns.find((t) => t.id === activeTurnId) || turns[turns.length - 1] || null;
 
-  const handleAdminStatusChange = async (
-    sourceId: string,
-    newStatus: SourceApprovalStatus
+  const handleRefreshLiveTurn = async (
+    newTimeframe?: "all" | "day" | "week" | "month" | "year",
+    silentBackground = false
   ) => {
-    // Update both server endpoint and client singleton so state is consistent everywhere
-    const localOut = globalSourceRegistry.updateSourceStatus(
-      sourceId,
-      newStatus,
-      undefined,
-      "admin_console"
-    );
-    globalSearchOrchestrator.invalidateCache();
+    if (!currentTurn || isGenerating) return;
+    const tf = newTimeframe || activeTimeframe;
+    if (newTimeframe) setActiveTimeframe(newTimeframe);
+    if (!silentBackground) setIsGenerating(true);
 
     try {
-      await fetch("/api/source-registry", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "updateStatus", sourceId, status: newStatus })
+      const refreshedData = await fetchLiveCuratedFeed(currentTurn.userQuery, {
+        timeframe: tf,
+        strictFilter: strictSignalOnly,
+        geminiApiKey,
+        bypassCache: true,
+        page: visibleCountMultiplier,
+        pageSize: 14
       });
-    } catch {
-      // Ignore network error if static
-    }
 
-    await syncRegistryState();
-    if (!localOut.success) {
-      triggerToast(localOut.error || "Cannot approve prohibited domain");
-    } else {
-      triggerToast(`Updated source ${sourceId} to "${newStatus.toUpperCase()}"`);
+      setTurns((prev) =>
+        prev.map((t) => (t.id === currentTurn.id ? { ...t, feedData: refreshedData } : t))
+      );
+      setHasNewLiveUpdateBanner(false);
+      if (!silentBackground) {
+        triggerToast("Refreshed live feed & updated active scorecards");
+      }
+    } finally {
+      if (!silentBackground) setIsGenerating(false);
     }
   };
 
-  const handleAdminAddSource = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newSourceName.trim() || !newSourceDomain.trim()) return;
+  const handleLoadMoreItems = async () => {
+    const nextPage = visibleCountMultiplier + 1;
+    setVisibleCountMultiplier(nextPage);
+    if (!currentTurn) return;
+    const expandedData = await fetchLiveCuratedFeed(currentTurn.userQuery, {
+      timeframe: activeTimeframe,
+      strictFilter: strictSignalOnly,
+      geminiApiKey,
+      page: nextPage,
+      pageSize: 14
+    });
+    setTurns((prev) =>
+      prev.map((t) => (t.id === currentTurn.id ? { ...t, feedData: expandedData } : t))
+    );
+    triggerToast("Loaded additional stories, photos & videos");
+  };
 
-    const newRec = {
-      id: `src-custom-${Date.now()}`,
-      publisherName: newSourceName.trim(),
-      canonicalDomain: newSourceDomain.trim().toLowerCase(),
-      approvedSubdomains: ["www"],
-      category: newSourceCategory,
-      sourceType: "news_publisher" as const,
-      approvalStatus: "pending_review" as const,
-      geographicCoverage: ["Global"],
-      supportedLanguages: ["en"],
-      permittedIngestionMethods: ["approved_discovery" as const],
-      commercialLicensingNotes: "Added via Admin Console; pending editorial & technical validation.",
-      trustTier: 3 as const,
-      maxContentAgeMs: 24 * 3600 * 1000,
-      maxCacheDurationMs: 5 * 60 * 1000,
-      integrationHealth: "healthy" as const,
-      adminNotes: "Submitted by administrator for domain verification."
-    };
-
-    const localOut = globalSourceRegistry.addSource(newRec, "admin_console");
-    try {
-      await fetch("/api/source-registry", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "addSource", newSource: newRec })
-      });
-    } catch {
-      // Ignore if static
+  const handleShareItem = (title: string, url: string) => {
+    if (navigator?.clipboard?.writeText && url) {
+      navigator.clipboard.writeText(url).catch(() => {});
     }
-
-    await syncRegistryState();
-    if (!localOut.success) {
-      triggerToast(localOut.error || "Invalid domain");
-    } else {
-      setNewSourceName("");
-      setNewSourceDomain("");
-      triggerToast(`Added "${newRec.publisherName}" (${newRec.canonicalDomain}) as Pending Review`);
-    }
+    triggerToast(`Copied link to "${title.slice(0, 32)}..."`);
   };
 
   const handleToggleVoice = () => {
@@ -521,7 +424,7 @@ export default function App() {
     }
     setIsVoiceSimulated(true);
     setInputQuery("");
-    const sampleVoicePhrase = "Cricket & live sports scores from ICC, BCCI, ESPN & BBC Sport";
+    const sampleVoicePhrase = "Formula 1 live race updates, paddock photologs and highlights";
     let idx = 0;
     const interval = setInterval(() => {
       idx += 1;
@@ -530,7 +433,7 @@ export default function App() {
         clearInterval(interval);
         setIsVoiceSimulated(false);
       }
-    }, 30);
+    }, 35);
   };
 
   const toggleLike = (id: string) => {
@@ -540,88 +443,117 @@ export default function App() {
     }));
   };
 
-  const toggleBookmark = (item: StandardizedSearchResult) => {
+  const toggleBookmark = (item: any, type: string) => {
     setBookmarkedItems((prev) => {
       const exists = prev.some((b) => b.id === item.id);
       if (exists) {
-        triggerToast("Removed from your Verified Reading Vault");
+        triggerToast("Removed from your Reading & Photo Vault");
         return prev.filter((b) => b.id !== item.id);
       } else {
-        triggerToast(`Saved "${item.title.slice(0, 32)}..." to Vault`);
-        return [...prev, item];
+        triggerToast(`Saved "${(item.title || item.caption || "").slice(0, 32)}..." to Vault`);
+        return [...prev, { ...item, mediaType: type }];
       }
     });
   };
 
   const isBookmarked = (id: string) => bookmarkedItems.some((b) => b.id === id);
-  const currentTurn =
-    turns.find((t) => t.id === activeTurnId) || turns[turns.length - 1] || null;
 
-  const filteredView = useMemo(() => {
-    if (!currentTurn?.engineResponse) {
-      return {
-        results: [] as StandardizedSearchResult[],
-        liveScores: [] as StructuredSportsEvent[],
-        availableSources: [] as string[]
-      };
+  // Compute filtered & sorted items for the active turn while preserving feed continuity
+  const filteredFeed = useMemo(() => {
+    if (!currentTurn?.feedData) {
+      return { articles: [], photologs: [], vlogs: [], availableSources: [] };
     }
-
-    const rawResults = currentTurn.engineResponse.results || [];
-    const rawScores = currentTurn.engineResponse.liveScoreEvents || [];
+    const rawArticles = currentTurn.feedData.articles || [];
+    const rawPhotos = currentTurn.feedData.photologs || [];
+    const rawVlogs = currentTurn.feedData.vlogs || [];
 
     const availableSources = Array.from(
-      new Set(rawResults.map((r) => r.source_name))
-    ).filter(Boolean);
+      new Set([
+        ...rawArticles.map((a: any) => a.sourceName),
+        ...rawPhotos.map((p: any) => p.sourceName),
+        ...rawVlogs.map((v: any) => v.sourceName)
+      ])
+    ).filter(Boolean) as string[];
 
     const kw = keywordFilter.trim().toLowerCase();
+    const minScore = strictSignalOnly ? minSignalScore : 0;
 
-    const filteredResults = rawResults.filter((r) => {
-      if (activeDataTypeFilter === "scores") return false;
-      if (
-        activeDataTypeFilter === "primary" &&
-        r.verification_status !== "primary_official" &&
-        r.source_tier !== 1
-      ) {
-        return false;
-      }
-      if (activeTierFilter !== "all" && r.source_tier !== activeTierFilter) {
-        return false;
-      }
-      if (activeSourceFilter !== "all" && r.source_name !== activeSourceFilter) {
-        return false;
-      }
+    const nowMs = Date.now();
+    const maxAgeByTimeframeMs: Record<string, number> = {
+      all: Number.POSITIVE_INFINITY,
+      day: 24 * 3600 * 1000,
+      week: 7 * 24 * 3600 * 1000,
+      month: 30 * 24 * 3600 * 1000,
+      year: 365 * 24 * 3600 * 1000
+    };
+    const maxAllowedAge = maxAgeByTimeframeMs[activeTimeframe] || Number.POSITIVE_INFINITY;
+
+    const matchItem = (item: any, textFields: string[]) => {
+      if (activeSourceFilter !== "all" && item.sourceName !== activeSourceFilter) return false;
+      if ((item.signalScore || 90) < minScore) return false;
+      if (item.timestampMs && nowMs - item.timestampMs > maxAllowedAge) return false;
       if (kw) {
-        const hay = `${r.title} ${r.summary} ${r.source_name} ${r.source_domain} ${(
-          r.tags || []
-        ).join(" ")}`.toLowerCase();
-        if (!hay.includes(kw)) return false;
+        const combined = textFields.join(" ").toLowerCase();
+        if (!combined.includes(kw)) return false;
       }
       return true;
-    });
+    };
 
-    const filteredScores =
-      activeDataTypeFilter === "all" || activeDataTypeFilter === "scores"
-        ? rawScores
-        : [];
+    const sortItems = (list: any[]) => {
+      const copy = [...list];
+      if (activeSortBy === "latest") {
+        return copy.sort((a, b) => (b.timestampMs || 0) - (a.timestampMs || 0));
+      }
+      if (activeSortBy === "popular") {
+        return copy.sort((a, b) => (b.likes || 0) - (a.likes || 0));
+      }
+      return copy.sort((a, b) => (b.signalScore || 90) - (a.signalScore || 90));
+    };
 
     return {
-      results: filteredResults,
-      liveScores: filteredScores,
-      availableSources
+      availableSources,
+      articles: sortItems(
+        rawArticles.filter((a: any) =>
+          matchItem(a, [a.title, a.snippet, a.author, a.category, a.sourceName, ...(a.tags || [])])
+        )
+      ),
+      photologs: sortItems(
+        rawPhotos.filter((p: any) =>
+          matchItem(p, [p.caption, p.photographer, p.location, p.cameraSpec, p.sourceName])
+        )
+      ),
+      vlogs: sortItems(
+        rawVlogs.filter((v: any) =>
+          matchItem(v, [v.title, v.creator, v.highlightQuote, v.sourceName])
+        )
+      )
     };
   }, [
     currentTurn,
-    activeDataTypeFilter,
-    activeTierFilter,
     activeSourceFilter,
-    keywordFilter
+    activeTimeframe,
+    keywordFilter,
+    strictSignalOnly,
+    minSignalScore,
+    activeSortBy
   ]);
+
+  // Subtle background check for live sports or developing stories without disrupting scroll position
+  useEffect(() => {
+    if (viewMode !== "conversation" || !currentTurn?.feedData?.matchScorecard?.isLive) {
+      return;
+    }
+    const timer = setInterval(() => {
+      setHasNewLiveUpdateBanner(true);
+    }, 45000);
+    return () => clearInterval(timer);
+  }, [viewMode, currentTurn]);
 
   useEffect(() => {
     if (chatEndRef.current && viewMode === "conversation") {
       chatEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [turns, isGenerating, viewMode]);
+  }, [turns.length, isGenerating, viewMode]);
 
   const handleResetToGreeting = () => {
     setViewMode("greeting");
@@ -636,7 +568,6 @@ export default function App() {
         <div className="absolute -bottom-40 left-1/3 w-[28rem] h-[28rem] bg-emerald-500/8 rounded-full blur-[130px]" />
       </div>
 
-      {/* TOP NAVIGATION BAR */}
       <header className="sticky top-0 z-30 backdrop-blur-xl bg-[#0B0D11]/85 border-b border-white/[0.06] px-4 sm:px-8 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button
@@ -653,12 +584,12 @@ export default function App() {
                   AiRA
                 </span>
                 <span className="text-[10px] uppercase tracking-widest px-2 py-0.5 rounded-full bg-emerald-400/10 text-emerald-300 border border-emerald-400/25 font-medium flex items-center gap-1">
-                  <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                  Source-Controlled Engine
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Live Filtered Social
                 </span>
               </div>
               <p className="text-xs text-slate-400 hidden sm:block">
-                Allowlisted Primary Sources • Verified Citations • Zero Social/Wiki Noise
+                Conversational Live Web Blogs • Photologs • Vlogs
               </p>
             </div>
           </button>
@@ -687,16 +618,13 @@ export default function App() {
           )}
 
           <button
-            onClick={() => {
-              syncRegistryState();
-              setShowRegistryModal(true);
-            }}
-            className="px-3 py-2 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-400/30 text-cyan-200 flex items-center gap-1.5 text-xs font-medium transition"
-            title="Manage Approved Source Registry, Freshness Policies & Rejected Logs"
+            onClick={() => setShowApiKeyModal(true)}
+            className="px-3 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-300 flex items-center gap-1.5 text-xs transition"
+            title="Configure Live AI & Filter Preferences"
           >
-            <Database className="w-3.5 h-3.5 text-cyan-400" />
+            <KeyRound className="w-3.5 h-3.5 text-cyan-400" />
             <span className="hidden md:inline">
-              Source Registry ({registrySources.filter((s) => s.approvalStatus === "approved").length} Approved)
+              {geminiApiKey ? "Gemini Key Active" : "Live AI Settings"}
             </span>
           </button>
 
@@ -728,7 +656,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* GREETING SCREEN */}
       {viewMode === "greeting" && (
         <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-12 max-w-4xl mx-auto w-full">
           <div className="mb-6 relative flex flex-col items-center">
@@ -736,10 +663,10 @@ export default function App() {
             <AiraNeonLogo className="h-16 sm:h-20 w-auto relative z-10" />
           </div>
 
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/[0.04] border border-emerald-400/30 text-xs text-slate-200 mb-6 shadow-sm">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/[0.04] border border-cyan-400/25 text-xs text-slate-300 mb-6 shadow-sm">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
             <span>
-              <strong className="text-emerald-300 font-semibold">Strict Allowlist Active:</strong> Official Governing Bodies, Reputable News & Primary Vendor Docs Only.
+              Welcome to <strong className="text-cyan-300 font-semibold">AiRA</strong> — Live web results, filtered for pure signal.
             </span>
           </div>
 
@@ -748,7 +675,7 @@ export default function App() {
           </h1>
 
           <p className="text-slate-400 text-center text-base sm:text-lg max-w-2xl mb-10 leading-relaxed">
-            Every result is verified against AiRA’s approved source registry with explicit publication timestamps, freshness checks, and traceable citations. Wikipedia and social media platforms (X, Instagram, Facebook, Threads, Reddit) are strictly blocked from factual search.
+            Ask about any topic in the world—live sports, cities, science, cinema, or tech. AiRA fetches live blogs, photologs, and vlogs in real time and filters out the noise.
           </p>
 
           <div className="w-full max-w-2xl mb-10">
@@ -765,7 +692,7 @@ export default function App() {
                   type="text"
                   value={inputQuery}
                   onChange={(e) => setInputQuery(e.target.value)}
-                  placeholder='Search verified sources: "India cricket", "OpenAI releases", "Formula 1", "Reuters markets"...'
+                  placeholder='Ask anything live: "Formula 1", "New smartphone", "SpaceX", "Kyoto"...'
                   className="w-full bg-transparent text-slate-100 placeholder-slate-500 text-base sm:text-lg focus:outline-none"
                 />
                 <button
@@ -789,7 +716,7 @@ export default function App() {
                   disabled={!inputQuery.trim() || isGenerating}
                   className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 disabled:opacity-40 text-slate-950 font-semibold text-sm flex items-center gap-2"
                 >
-                  <span>Verify & Search</span>
+                  <span>Explore Live</span>
                   <Send className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -797,7 +724,7 @@ export default function App() {
               {isVoiceSimulated && (
                 <div className="px-3 pb-1.5 pt-1 flex items-center gap-2 text-xs text-amber-300">
                   <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" />
-                  <span>Listening & transcribing your query...</span>
+                  <span>Listening & transcribing your voice prompt...</span>
                 </div>
               )}
             </form>
@@ -806,10 +733,10 @@ export default function App() {
           <div className="w-full max-w-3xl">
             <div className="flex items-center justify-between mb-3 px-1">
               <span className="text-xs uppercase tracking-wider text-slate-500 font-medium">
-                Verified Category Streams
+                Try a live filtered stream or type any custom topic above
               </span>
               <span className="text-xs text-emerald-400/90 flex items-center gap-1">
-                <ShieldCheck className="w-3.5 h-3.5" /> 8-Stage Verification Pipeline
+                <Globe className="w-3.5 h-3.5" /> Multi-Source Live Web Fetch
               </span>
             </div>
 
@@ -844,17 +771,16 @@ export default function App() {
         </main>
       )}
 
-      {/* CONVERSATION & VERIFIED FEED VIEW */}
       {viewMode === "conversation" && (
         <main className="relative z-10 flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* LEFT COLUMN: EVIDENCE-GROUNDED CONVERSATION THREAD */}
+          {/* LEFT COLUMN: CONVERSATION & PROMPT STREAM */}
           <section className="lg:col-span-4 lg:sticky lg:top-20 flex flex-col bg-[#11151E]/90 border border-white/[0.08] rounded-3xl overflow-hidden shadow-2xl max-h-[85vh]">
             <div className="px-5 py-4 border-b border-white/[0.07] flex items-center justify-between bg-white/[0.02]">
               <div className="flex items-center gap-2.5">
                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
                 <div>
-                  <h2 className="text-sm font-semibold text-white">AiRA Evidence Verifier</h2>
-                  <p className="text-[11px] text-slate-400">Strict allowlist & citation grounding</p>
+                  <h2 className="text-sm font-semibold text-white">AiRA Live Curator</h2>
+                  <p className="text-[11px] text-slate-400">Real-time web search & noise filter</p>
                 </div>
               </div>
               <button
@@ -862,7 +788,7 @@ export default function App() {
                 className="text-xs text-slate-400 hover:text-cyan-300 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] transition"
               >
                 <PlusCircle className="w-3.5 h-3.5" />
-                <span>New Query</span>
+                <span>New Topic</span>
               </button>
             </div>
 
@@ -870,13 +796,12 @@ export default function App() {
               <div className="flex items-start gap-3">
                 <AiraAssistantBadge />
                 <div className="bg-white/[0.04] border border-white/[0.07] rounded-2xl rounded-tl-sm px-4 py-3 text-xs sm:text-sm text-slate-300 leading-relaxed">
-                  {getGreetingPhrase()}! I retrieve and verify records exclusively from approved broadcasters, news organizations, and primary technical sources. Every factual statement below is linked to its source citation.
+                  {getGreetingPhrase()}! I’m <span className="text-cyan-300 font-semibold">AiRA</span>. Ask me about any live topic, and I’ll curate real-time blogs, photologs, vlogs, and live event updates from trusted sources while filtering out noise.
                 </div>
               </div>
 
               {turns.map((turn) => {
                 const isSelected = currentTurn && currentTurn.id === turn.id;
-                const resp = turn.engineResponse;
                 return (
                   <div key={turn.id} className="space-y-3">
                     <div className="flex justify-end">
@@ -898,38 +823,33 @@ export default function App() {
                             : "bg-white/[0.03] border-white/[0.07] hover:bg-white/[0.06]"
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-400/30 font-semibold">
-                            Category: {resp.detectedCategory}
-                          </span>
-                          <span className="text-[10px] text-slate-400">
-                            {resp.diagnostics.candidatesVerified} verified •{" "}
-                            {resp.diagnostics.candidatesRejected} rejected
-                          </span>
-                        </div>
-
                         <p className="text-xs sm:text-sm text-slate-200 leading-relaxed mb-3">
-                          {resp.groundedSynthesis.synthesizedSummary}
+                          {turn.feedData.assistantSummary}
                         </p>
 
-                        {resp.groundedSynthesis.uncertaintyNotice && (
-                          <div className="mb-3 p-2.5 rounded-xl bg-amber-500/10 border border-amber-400/30 text-[11px] text-amber-200 flex items-start gap-2">
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-                            <span>{resp.groundedSynthesis.uncertaintyNotice}</span>
+                        {turn.feedData.stats && (
+                          <div className="mb-2.5 flex items-center gap-1.5 text-[11px] text-emerald-300/90 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
+                            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                            <span>
+                              Filtered {turn.feedData.stats.filteredNoiseCount} noisy items •{" "}
+                              {turn.feedData.stats.sources?.length || 4} live sources
+                            </span>
                           </div>
                         )}
 
                         <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/[0.07]">
-                          <span className="text-[11px] px-2.5 py-1 rounded-lg bg-emerald-400/10 text-emerald-300 font-medium flex items-center gap-1">
-                            <ShieldCheck className="w-3 h-3" />
-                            {resp.results.length} Verified Records
+                          <span className="text-[11px] px-2.5 py-1 rounded-lg bg-amber-400/10 text-amber-300 font-medium flex items-center gap-1">
+                            <BookOpen className="w-3 h-3" />
+                            {turn.feedData.articles?.length || 0} Blogs
                           </span>
-                          {resp.liveScoreEvents.length > 0 && (
-                            <span className="text-[11px] px-2.5 py-1 rounded-lg bg-amber-400/10 text-amber-300 font-medium flex items-center gap-1">
-                              <Flame className="w-3 h-3" />
-                              {resp.liveScoreEvents.length} Scoreboard Events
-                            </span>
-                          )}
+                          <span className="text-[11px] px-2.5 py-1 rounded-lg bg-indigo-400/10 text-indigo-300 font-medium flex items-center gap-1">
+                            <Camera className="w-3 h-3" />
+                            {turn.feedData.photologs?.length || 0} Photologs
+                          </span>
+                          <span className="text-[11px] px-2.5 py-1 rounded-lg bg-rose-400/10 text-rose-300 font-medium flex items-center gap-1">
+                            <Video className="w-3 h-3" />
+                            {turn.feedData.vlogs?.length || 0} Vlogs
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -945,7 +865,7 @@ export default function App() {
                     <div className="h-3 bg-white/10 rounded w-full" />
                     <div className="h-3 bg-white/10 rounded w-1/2" />
                     <p className="text-[11px] text-cyan-300/90 pt-1">
-                      Running 8-stage source allowlist, freshness & citation verification pipeline...
+                      Curating live articles, photologs, and vlogs across trusted sources...
                     </p>
                   </div>
                 </div>
@@ -953,6 +873,22 @@ export default function App() {
 
               <div ref={chatEndRef} />
             </div>
+
+            {currentTurn && currentTurn.feedData?.followUpPrompts && !isGenerating && (
+              <div className="px-4 py-2.5 bg-white/[0.02] border-t border-white/[0.06] overflow-x-auto">
+                <div className="flex items-center gap-2">
+                  {currentTurn.feedData.followUpPrompts.map((prompt: string, i: number) => (
+                    <button
+                      key={i}
+                      onClick={() => handleSendQuery(prompt)}
+                      className="shrink-0 text-[11px] px-3 py-1.5 rounded-full bg-white/[0.05] hover:bg-amber-400/15 text-slate-300 hover:text-amber-200 border border-white/[0.08] hover:border-amber-400/30 transition"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <form
               onSubmit={(e) => {
@@ -965,7 +901,7 @@ export default function App() {
                 type="text"
                 value={inputQuery}
                 onChange={(e) => setInputQuery(e.target.value)}
-                placeholder="Query approved sources..."
+                placeholder="Ask any live topic or follow-up..."
                 className="flex-1 bg-white/[0.05] border border-white/[0.08] focus:border-amber-400/50 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none"
               />
               <button
@@ -990,45 +926,52 @@ export default function App() {
             </form>
           </section>
 
-          {/* RIGHT COLUMN: VERIFIED CITATION-BACKED RESULTS & STRUCTURED LIVE SCORES */}
+          {/* RIGHT COLUMN: LIVE FILTERED SOCIAL FEED */}
           <section className="lg:col-span-8 space-y-6 pb-16">
             {currentTurn ? (
               <>
-                {/* PIPELINE STATUS & FILTER HEADER */}
+                {/* SUBTLE NEW UPDATES INDICATOR (Preserves scroll position) */}
+                {hasNewLiveUpdateBanner && (
+                  <div className="flex items-center justify-between px-4 py-2.5 rounded-2xl bg-cyan-500/15 border border-cyan-400/35 text-xs text-cyan-200">
+                    <div className="flex items-center gap-2">
+                      <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                      <span>New live updates and score refreshes are available for this topic.</span>
+                    </div>
+                    <button
+                      onClick={() => handleRefreshLiveTurn(undefined, true)}
+                      className="px-3 py-1 rounded-xl bg-cyan-400 text-slate-950 font-semibold hover:bg-cyan-300 transition"
+                    >
+                      Update In-Place
+                    </button>
+                  </div>
+                )}
+
+                {/* FEED HEADER & INTERACTIVE FILTER CONTROLS */}
                 <div className="bg-[#121620]/90 border border-white/[0.08] rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.07] pb-4">
                     <div>
                       <div className="flex flex-wrap items-center gap-2 text-xs text-emerald-400 font-medium mb-1">
-                        <ShieldCheck className="w-4 h-4" />
-                        <span>ALLOWLIST VERIFIED • WIKIPEDIA & SOCIAL MEDIA BLOCKED</span>
-                        <span className="text-slate-500">
-                          • Retrieved{" "}
-                          {formatDisplayTimestamp(currentTurn.engineResponse.executedAt)}
-                        </span>
-                        {currentTurn.engineResponse.fromCache && (
-                          <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-400/30 text-[10px]">
-                            Cache: {currentTurn.engineResponse.cacheStatus}
+                        <Globe className="w-3.5 h-3.5" />
+                        <span>LIVE WEB STREAM • NOISE FILTERED</span>
+                        {currentTurn.feedData.stats?.fetchedAt && (
+                          <span className="text-slate-500">
+                            • Updated {currentTurn.feedData.stats.fetchedAt}
                           </span>
                         )}
                       </div>
                       <h1 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight">
-                        {currentTurn.engineResponse.groundedSynthesis.headline}
+                        {currentTurn.feedData.topicTitle}
                       </h1>
                     </div>
 
                     <div className="flex items-center gap-2 self-start">
                       <button
-                        onClick={handleRefreshTurn}
+                        onClick={() => handleRefreshLiveTurn()}
                         disabled={isGenerating}
-                        className="px-3 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-200 text-xs flex items-center gap-1.5 transition"
-                        title="Bypass cache and re-verify live feeds"
+                        className="p-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-300 hover:text-white transition"
+                        title="Refresh live results"
                       >
-                        <RefreshCw
-                          className={`w-3.5 h-3.5 ${
-                            isGenerating ? "animate-spin text-amber-400" : ""
-                          }`}
-                        />
-                        <span>Re-verify Live</span>
+                        <RefreshCw className={`w-4 h-4 ${isGenerating ? "animate-spin text-amber-400" : ""}`} />
                       </button>
                       <button
                         onClick={() => setShowFilterPanel((prev) => !prev)}
@@ -1044,74 +987,27 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* EVIDENCE-GROUNDED CLAIMS & CITATION TRACEABILITY BOX */}
-                  {currentTurn.engineResponse.groundedSynthesis.factualClaims.length > 0 && (
-                    <div className="rounded-2xl bg-[#0D111A] border border-cyan-500/20 p-4 space-y-2.5">
-                      <div className="flex items-center justify-between text-xs text-cyan-300 font-semibold">
-                        <span className="flex items-center gap-1.5">
-                          <FileCheck2 className="w-3.5 h-3.5" />
-                          Evidence-Grounded Claims & Supporting Citations
-                        </span>
-                        <span className="text-[11px] text-slate-400 font-normal">
-                          Zero unverified assumptions
-                        </span>
-                      </div>
-                      <ul className="space-y-2 text-xs text-slate-300">
-                        {currentTurn.engineResponse.groundedSynthesis.factualClaims.map(
-                          (claim, idx) => (
-                            <li
-                              key={idx}
-                              className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05] flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-                            >
-                              <span className="leading-relaxed">{claim.claimText}</span>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-400/30 font-mono">
-                                  Ref: {claim.citationIds.join(", ")}
-                                </span>
-                                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300">
-                                  {Math.round(claim.confidence * 100)}% Conf
-                                </span>
-                              </div>
-                            </li>
-                          )
-                        )}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* FILTER BAR */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                  {/* MEDIA TYPE TABS */}
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-1.5 bg-[#0B0D11] p-1.5 rounded-2xl border border-white/[0.07]">
                       {[
                         {
                           id: "all",
-                          label: "All Verified",
+                          label: "All Media",
                           count:
-                            filteredView.results.length + filteredView.liveScores.length
+                            filteredFeed.articles.length +
+                            filteredFeed.photologs.length +
+                            filteredFeed.vlogs.length
                         },
-                        {
-                          id: "primary",
-                          label: "Tier-1 Official / Primary",
-                          count: currentTurn.engineResponse.results.filter(
-                            (r) => r.source_tier === 1
-                          ).length
-                        },
-                        {
-                          id: "article",
-                          label: "Editorial & Reports",
-                          count: filteredView.results.length
-                        },
-                        {
-                          id: "scores",
-                          label: "Structured Scoreboards",
-                          count: currentTurn.engineResponse.liveScoreEvents.length
-                        }
+                        { id: "articles", label: "Blogs & News", count: filteredFeed.articles.length },
+                        { id: "photologs", label: "Photologs", count: filteredFeed.photologs.length },
+                        { id: "vlogs", label: "Vlogs", count: filteredFeed.vlogs.length }
                       ].map((tab) => (
                         <button
                           key={tab.id}
-                          onClick={() => setActiveDataTypeFilter(tab.id as any)}
+                          onClick={() => setActiveMediaFilter(tab.id)}
                           className={`px-3 py-1.5 rounded-xl text-xs font-medium transition flex items-center gap-1.5 ${
-                            activeDataTypeFilter === tab.id
+                            activeMediaFilter === tab.id
                               ? "bg-amber-400 text-slate-950 shadow-sm font-semibold"
                               : "text-slate-400 hover:text-white"
                           }`}
@@ -1119,7 +1015,7 @@ export default function App() {
                           <span>{tab.label}</span>
                           <span
                             className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                              activeDataTypeFilter === tab.id
+                              activeMediaFilter === tab.id
                                 ? "bg-slate-950/20 text-slate-950"
                                 : "bg-white/[0.07] text-slate-400"
                             }`}
@@ -1130,13 +1026,14 @@ export default function App() {
                       ))}
                     </div>
 
+                    {/* WITHIN-RESULTS KEYWORD FILTER */}
                     <div className="relative flex-1 min-w-[200px] max-w-xs">
                       <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
                         value={keywordFilter}
                         onChange={(e) => setKeywordFilter(e.target.value)}
-                        placeholder="Filter verified results..."
+                        placeholder="Filter results by keyword or #tag..."
                         className="w-full bg-[#0B0D11] border border-white/[0.08] focus:border-cyan-400/50 rounded-xl pl-8 pr-7 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none"
                       />
                       {keywordFilter && (
@@ -1150,11 +1047,13 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* EXPANDABLE SMART FILTER BAR (Source, Timeframe, Sort, Signal Threshold) */}
                   {showFilterPanel && (
-                    <div className="pt-3 border-t border-white/[0.06] flex flex-wrap items-center justify-between gap-3 text-xs">
-                      <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className="pt-3 border-t border-white/[0.06] grid grid-cols-1 md:grid-cols-12 gap-3 items-center text-xs">
+                      {/* Source Filter Pills */}
+                      <div className="md:col-span-7 flex items-center gap-1.5 flex-wrap">
                         <span className="text-[11px] text-slate-400 mr-1 flex items-center gap-1">
-                          <Filter className="w-3 h-3 text-cyan-400" /> Approved Publisher:
+                          <Filter className="w-3 h-3 text-cyan-400" /> Source:
                         </span>
                         <button
                           onClick={() => setActiveSourceFilter("all")}
@@ -1164,9 +1063,9 @@ export default function App() {
                               : "bg-white/[0.04] text-slate-400 hover:text-slate-200"
                           }`}
                         >
-                          All Approved ({filteredView.availableSources.length})
+                          All Sources
                         </button>
-                        {filteredView.availableSources.map((src) => (
+                        {filteredFeed.availableSources.map((src) => (
                           <button
                             key={src}
                             onClick={() =>
@@ -1183,352 +1082,620 @@ export default function App() {
                         ))}
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      {/* Timeframe + Sort + Signal Filter */}
+                      <div className="md:col-span-5 flex flex-wrap items-center justify-end gap-2">
                         <select
-                          value={String(activeTierFilter)}
+                          value={activeTimeframe}
                           onChange={(e) =>
-                            setActiveTierFilter(
-                              e.target.value === "all"
-                                ? "all"
-                                : (Number(e.target.value) as 1 | 2)
+                            setActiveTimeframe(
+                              e.target.value as "all" | "day" | "week" | "month" | "year"
                             )
                           }
                           className="bg-[#0B0D11] border border-white/[0.1] rounded-xl px-2.5 py-1.5 text-[11px] text-slate-200 focus:outline-none"
+                          title="Live Search Timeframe"
                         >
-                          <option value="all">All Trust Tiers (Tier 1–3)</option>
-                          <option value="1">Tier 1 Only (Primary / Governing)</option>
-                          <option value="2">Tier 2 Only (Editorial Publishers)</option>
+                          <option value="all">Time: All Relevant</option>
+                          <option value="day">Past 24 Hours</option>
+                          <option value="week">Past Week</option>
+                          <option value="month">Past Month</option>
+                          <option value="year">Past Year</option>
                         </select>
+
+                        <select
+                          value={activeSortBy}
+                          onChange={(e) =>
+                            setActiveSortBy(e.target.value as "signal" | "latest" | "popular")
+                          }
+                          className="bg-[#0B0D11] border border-white/[0.1] rounded-xl px-2.5 py-1.5 text-[11px] text-slate-200 focus:outline-none"
+                          title="Sort Order"
+                        >
+                          <option value="signal">Sort: Highest Signal</option>
+                          <option value="latest">Sort: Most Recent</option>
+                          <option value="popular">Sort: Most Popular</option>
+                        </select>
+
+                        <button
+                          onClick={() => setStrictSignalOnly((prev) => !prev)}
+                          className={`px-2.5 py-1.5 rounded-xl border text-[11px] flex items-center gap-1 transition ${
+                            strictSignalOnly
+                              ? "bg-emerald-500/15 border-emerald-400/35 text-emerald-300"
+                              : "bg-white/[0.04] border-white/[0.08] text-slate-400"
+                          }`}
+                          title="Toggle Strict Quality & Anti-Clickbait Filter"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>{strictSignalOnly ? `Signal ≥${minSignalScore}%` : "Unfiltered"}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* LIVE MATCH SCORECARD & EVENT PROGRESS CARD */}
+                  {currentTurn.feedData.matchScorecard && (
+                    <div className="mt-3 rounded-2xl bg-gradient-to-r from-emerald-950/60 via-[#151C28] to-indigo-950/60 border border-emerald-500/25 p-4 sm:p-5">
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <span className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                          <Flame className="w-3.5 h-3.5 text-amber-400" />
+                          {currentTurn.feedData.matchScorecard.event}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`text-[11px] font-bold tracking-wider uppercase px-2.5 py-0.5 rounded-full border ${
+                              currentTurn.feedData.matchScorecard.isLive
+                                ? "bg-rose-500/20 text-rose-300 border-rose-400/40 animate-pulse"
+                                : currentTurn.feedData.matchScorecard.isStale
+                                ? "bg-amber-500/15 text-amber-300 border-amber-400/30"
+                                : "bg-emerald-400/15 text-emerald-300 border-emerald-400/30"
+                            }`}
+                          >
+                            {currentTurn.feedData.matchScorecard.status}
+                          </span>
+                          {currentTurn.feedData.matchScorecard.sourceUrl && (
+                            <a
+                              href={currentTurn.feedData.matchScorecard.sourceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[11px] text-cyan-300 hover:text-cyan-200 flex items-center gap-1"
+                            >
+                              <span>{currentTurn.feedData.matchScorecard.sourceName || "Scoreboard"}</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 py-3 border-y border-white/[0.08]">
+                        <div className="flex items-center gap-3">
+                          <span className="text-3xl">{currentTurn.feedData.matchScorecard.team1.flag}</span>
+                          <div>
+                            <p className="text-xs text-slate-400 font-medium">
+                              {currentTurn.feedData.matchScorecard.team1.name}
+                            </p>
+                            <p className="text-xl sm:text-2xl font-bold text-white">
+                              {currentTurn.feedData.matchScorecard.team1.score}{" "}
+                              <span className="text-xs font-normal text-slate-400">
+                                ({currentTurn.feedData.matchScorecard.team1.overs})
+                              </span>
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 justify-end text-right">
+                          <div>
+                            <p className="text-xs text-slate-400 font-medium">
+                              {currentTurn.feedData.matchScorecard.team2.name}
+                            </p>
+                            <p className="text-xl sm:text-2xl font-bold text-slate-200">
+                              {currentTurn.feedData.matchScorecard.team2.score}{" "}
+                              <span className="text-xs font-normal text-slate-400">
+                                ({currentTurn.feedData.matchScorecard.team2.overs})
+                              </span>
+                            </p>
+                          </div>
+                          <span className="text-3xl">{currentTurn.feedData.matchScorecard.team2.flag}</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-300">
+                        <span>
+                          <strong className="text-amber-300">Key Highlight:</strong>{" "}
+                          {currentTurn.feedData.matchScorecard.playerOfMatch}
+                        </span>
+                        <span className="text-slate-400 flex items-center gap-1">
+                          <Calendar className="w-3.5 h-3.5 text-indigo-400" />
+                          {currentTurn.feedData.matchScorecard.upcoming}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* DEVELOPING STORY STREAM (When multiple approved publishers cover an evolving topic) */}
+                  {currentTurn.feedData.developingStories?.length > 0 && (
+                    <div className="mt-2 rounded-2xl bg-white/[0.02] border border-white/[0.07] p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                          <span className="text-xs font-semibold text-amber-300 uppercase tracking-wider">
+                            {currentTurn.feedData.developingStories[0].storyTitle}
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-slate-400">
+                          Covered across {currentTurn.feedData.developingStories[0].publisherCount} distinct publishers
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                        {currentTurn.feedData.developingStories[0].timeline.slice(0, 3).map((upd: any) => (
+                          <a
+                            key={upd.id}
+                            href={upd.sourceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-3 rounded-xl bg-[#0E121B] hover:bg-[#151B28] border border-white/[0.06] hover:border-cyan-400/30 transition flex flex-col justify-between"
+                          >
+                            <div>
+                              <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+                                <span className="font-semibold text-cyan-300">{upd.sourceName}</span>
+                                <span>{upd.publishedAt}</span>
+                              </div>
+                              <p className="text-xs text-slate-200 font-medium line-clamp-2 leading-snug">
+                                {upd.headline}
+                              </p>
+                            </div>
+                          </a>
+                        ))}
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* STRUCTURED SPORTS SCOREBOARDS (SECTION 3B & 12) */}
-                {filteredView.liveScores.length > 0 && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between px-1">
-                      <div className="flex items-center gap-2">
-                        <span className="p-2 rounded-xl bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
-                          <Flame className="w-4 h-4" />
-                        </span>
-                        <div>
-                          <h2 className="text-lg font-semibold text-white">
-                            Official Structured Sports Scoreboards
-                          </h2>
-                          <p className="text-xs text-slate-400">
-                            Dedicated sports-data schema with explicit match state, timezone & provider timestamps
-                          </p>
+                {/* EMPTY FILTER STATE */}
+                {filteredFeed.articles.length === 0 &&
+                  filteredFeed.photologs.length === 0 &&
+                  filteredFeed.vlogs.length === 0 && (
+                    <div className="rounded-3xl bg-[#121620]/90 border border-white/[0.08] p-8 text-center space-y-3">
+                      <Filter className="w-8 h-8 text-amber-400 mx-auto" />
+                      <h3 className="text-base font-semibold text-white">
+                        No items match your active filter combination
+                      </h3>
+                      <p className="text-xs text-slate-400 max-w-md mx-auto">
+                        Try clearing the keyword filter, switching source back to "All Sources", or lowering the signal threshold.
+                      </p>
+                      <button
+                        onClick={() => {
+                          setActiveSourceFilter("all");
+                          setActiveTimeframe("all");
+                          setKeywordFilter("");
+                          setStrictSignalOnly(false);
+                          setActiveMediaFilter("all");
+                        }}
+                        className="px-4 py-2 rounded-xl bg-amber-400 text-slate-950 font-semibold text-xs"
+                      >
+                        Reset Filters
+                      </button>
+                    </div>
+                  )}
+
+                {/* SECTION 1: PHOTOLOGS */}
+                {(activeMediaFilter === "all" || activeMediaFilter === "photologs") &&
+                  filteredFeed.photologs.length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between px-1">
+                        <div className="flex items-center gap-2">
+                          <span className="p-2 rounded-xl bg-indigo-500/15 text-indigo-300 border border-indigo-500/25">
+                            <Camera className="w-4 h-4" />
+                          </span>
+                          <div>
+                            <h2 className="text-lg font-semibold text-white">
+                              Live Photologs & Visual Moments
+                            </h2>
+                            <p className="text-xs text-slate-400">
+                              High-resolution editorial frames & official visual galleries
+                            </p>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {filteredView.liveScores.map((ev) => (
-                        <div
-                          key={ev.id}
-                          className="rounded-3xl bg-gradient-to-br from-emerald-950/50 via-[#131824] to-indigo-950/40 border border-emerald-500/25 p-5 shadow-lg space-y-3"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-semibold text-emerald-300">
-                              {ev.competition}
-                            </span>
-                            <span
-                              className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${
-                                ev.isLive
-                                  ? "bg-rose-500/20 text-rose-300 border-rose-400/40 animate-pulse"
-                                  : ev.isStale
-                                  ? "bg-amber-500/20 text-amber-300 border-amber-400/40"
-                                  : "bg-slate-500/20 text-slate-300 border-slate-400/30"
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {filteredFeed.photologs.map((photo: any, index: number) => {
+                          const isLiked = !!likedIds[photo.id];
+                          return (
+                            <div
+                              key={photo.id}
+                              className={`group relative rounded-3xl overflow-hidden bg-[#141822] border border-white/[0.08] hover:border-amber-400/40 transition-all duration-300 flex flex-col ${
+                                index === 0 ? "md:col-span-2" : "md:col-span-1"
                               }`}
                             >
-                              {ev.isLive
-                                ? `LIVE • ${ev.statusDetail}`
-                                : ev.isStale
-                                ? `STALE • ${ev.statusDetail}`
-                                : `${ev.eventStatus.toUpperCase()} • ${ev.statusDetail}`}
-                            </span>
-                          </div>
-
-                          <div className="space-y-2 py-2 border-y border-white/[0.08]">
-                            {ev.participants.map((part, pIdx) => (
                               <div
-                                key={pIdx}
-                                className="flex items-center justify-between text-sm"
+                                onClick={() => setSelectedPhoto(photo)}
+                                className="relative h-64 sm:h-72 w-full overflow-hidden cursor-pointer"
                               >
-                                <div className="flex items-center gap-2.5">
-                                  {part.logoUrl && (
-                                    <img
-                                      src={part.logoUrl}
-                                      alt={part.name}
-                                      className="w-5 h-5 object-contain"
-                                    />
-                                  )}
-                                  <span
-                                    className={`font-medium ${
-                                      part.isWinner ? "text-white font-bold" : "text-slate-200"
-                                    }`}
-                                  >
-                                    {part.name}
-                                  </span>
+                                <img
+                                  src={photo.imageUrl}
+                                  alt={photo.caption}
+                                  loading="lazy"
+                                  onError={(e) => {
+                                    (e.currentTarget as HTMLImageElement).src = FALLBACK_STAGE_IMAGE;
+                                  }}
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-[#0B0D11] via-black/20 to-transparent" />
+
+                                <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/65 backdrop-blur-md text-[11px] text-slate-200 border border-white/10">
+                                  <MapPin className="w-3 h-3 text-amber-400 shrink-0" />
+                                  <span className="truncate max-w-[160px]">{photo.location}</span>
                                 </div>
-                                <div className="text-right">
-                                  <span className="text-lg font-bold text-white">
-                                    {part.score}
-                                  </span>
-                                  {part.detail && (
-                                    <span className="text-[11px] text-slate-400 ml-1.5">
-                                      ({part.detail})
+
+                                <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                                  {photo.signalScore && (
+                                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/80 text-slate-950 font-bold text-[10px]">
+                                      {photo.signalScore}% Signal
                                     </span>
                                   )}
+                                  <span className="px-2.5 py-1 rounded-full bg-black/65 backdrop-blur-md text-[10px] text-slate-300 border border-white/10">
+                                    {photo.sourceName || photo.cameraSpec}
+                                  </span>
                                 </div>
                               </div>
-                            ))}
-                          </div>
 
-                          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
-                            <span>
-                              Provider:{" "}
-                              <strong className="text-slate-200">{ev.providerName}</strong>
-                            </span>
-                            <span>
-                              Verified: {formatDisplayTimestamp(ev.verifiedAt)} (
-                              {ev.localTimeZone || "Local TZ"})
-                            </span>
-                          </div>
+                              <div className="p-4 flex-1 flex flex-col justify-between bg-[#121620]">
+                                <p
+                                  onClick={() => setSelectedPhoto(photo)}
+                                  className="text-sm text-slate-100 leading-snug mb-3 cursor-pointer hover:text-amber-200 transition line-clamp-2"
+                                >
+                                  {photo.caption}
+                                </p>
 
-                          <div className="flex items-center justify-between pt-1">
-                            <span className="text-[11px] text-slate-400 truncate max-w-[220px]">
-                              {ev.venue || "Official Competition Venue"}
-                            </span>
-                            <a
-                              href={ev.canonicalUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-cyan-300 hover:text-cyan-200 flex items-center gap-1 font-medium"
-                            >
-                              <span>Official Scoreboard</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                                <div className="flex items-center justify-between pt-2 border-t border-white/[0.06] text-xs text-slate-400">
+                                  <span className="font-medium text-amber-300/90 truncate max-w-[150px]">
+                                    {photo.photographer}
+                                  </span>
 
-                {/* TRANSPARENT NO-VERIFIED-RESULTS STATE (CORE PRINCIPLE #10) */}
-                {filteredView.results.length === 0 &&
-                  filteredView.liveScores.length === 0 && (
-                    <div className="rounded-3xl bg-[#121620]/95 border border-amber-500/30 p-8 text-center space-y-4">
-                      <ShieldAlert className="w-10 h-10 text-amber-400 mx-auto" />
-                      <h3 className="text-lg font-semibold text-white">
-                        No Verified Results Available from Approved Sources
-                      </h3>
-                      <p className="text-xs sm:text-sm text-slate-300 max-w-xl mx-auto leading-relaxed">
-                        {currentTurn.engineResponse.groundedSynthesis.uncertaintyNotice ||
-                          "Per AiRA's strict data-sourcing policy, unapproved websites, Wikipedia, and social media platforms (X, Facebook, Instagram, Threads, Reddit) are blocked. Rather than filling the gap with unverified or stale information, we report this limitation transparently."}
-                      </p>
-                      <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-                        <button
-                          onClick={() => {
-                            setActiveDataTypeFilter("all");
-                            setActiveTierFilter("all");
-                            setActiveSourceFilter("all");
-                            setKeywordFilter("");
-                          }}
-                          className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-white"
-                        >
-                          Reset View Filters
-                        </button>
-                        <button
-                          onClick={() => setShowRegistryModal(true)}
-                          className="px-4 py-2 rounded-xl bg-cyan-400 text-slate-950 font-semibold text-xs"
-                        >
-                          Inspect Source Registry & Rejections
-                        </button>
+                                  <div className="flex items-center gap-3">
+                                    <button
+                                      onClick={() => toggleLike(photo.id)}
+                                      className={`flex items-center gap-1 transition ${
+                                        isLiked ? "text-rose-400 font-semibold" : "hover:text-slate-200"
+                                      }`}
+                                    >
+                                      <Heart
+                                        className={`w-3.5 h-3.5 ${isLiked ? "fill-rose-400" : ""}`}
+                                      />
+                                      <span>{photo.likes + (isLiked ? 1 : 0)}</span>
+                                    </button>
+                                    <button
+                                      onClick={() => toggleBookmark(photo, "photolog")}
+                                      className={`transition ${
+                                        isBookmarked(photo.id) ? "text-amber-400" : "hover:text-slate-200"
+                                      }`}
+                                      title="Save Photolog"
+                                    >
+                                      <Bookmark
+                                        className={`w-3.5 h-3.5 ${isBookmarked(photo.id) ? "fill-amber-400" : ""}`}
+                                      />
+                                    </button>
+                                    {photo.sourceUrl && (
+                                      <a
+                                        href={photo.sourceUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="hover:text-cyan-300 transition"
+                                        title="Open Original Photo Source"
+                                      >
+                                        <ExternalLink className="w-3.5 h-3.5" />
+                                      </a>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
 
-                {/* VERIFIED FACTUAL RESULTS LIST (SECTION 12) */}
-                {filteredView.results.length > 0 && (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between px-1">
-                      <div className="flex items-center gap-2">
-                        <span className="p-2 rounded-xl bg-amber-500/15 text-amber-300 border border-amber-500/25">
-                          <BookOpen className="w-4 h-4" />
-                        </span>
-                        <div>
-                          <h2 className="text-lg font-semibold text-white">
-                            Verified Source-Attributed Results ({filteredView.results.length})
-                          </h2>
-                          <p className="text-xs text-slate-400">
-                            Ranked by Primary Authority (Tier 1 → Tier 2), Corroboration, and Verified Recency
-                          </p>
+                {/* SECTION 2: ARTICLES & BLOGS */}
+                {(activeMediaFilter === "all" || activeMediaFilter === "articles") &&
+                  filteredFeed.articles.length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between px-1">
+                        <div className="flex items-center gap-2">
+                          <span className="p-2 rounded-xl bg-amber-500/15 text-amber-300 border border-amber-500/25">
+                            <BookOpen className="w-4 h-4" />
+                          </span>
+                          <div>
+                            <h2 className="text-lg font-semibold text-white">
+                              Filtered Blogs, Discussions & Deep-Dive Articles
+                            </h2>
+                            <p className="text-xs text-slate-400">
+                              High-signal stories, official announcements & independent reviews
+                            </p>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="space-y-4">
-                      {filteredView.results.map((item) => {
-                        const isLiked = !!likedIds[item.id];
-                        const verBadge = getVerificationBadgeMeta(item);
-                        const freshBadge = getFreshnessBadgeMeta(item.freshness_status);
-
-                        return (
-                          <article
-                            key={item.id}
-                            className="group rounded-3xl bg-[#121620]/90 hover:bg-[#161B28] border border-white/[0.08] hover:border-cyan-400/35 p-5 sm:p-6 transition-all duration-200 shadow-lg shadow-black/20"
-                          >
-                            {/* Top Attribution & Verification Badges */}
-                            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-xs font-bold text-white bg-white/[0.07] px-2.5 py-1 rounded-lg border border-white/10">
-                                  {item.source_name}
-                                </span>
-                                <span className="text-[11px] font-mono text-cyan-300 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-500/25">
-                                  {item.source_domain}
-                                </span>
-                                <span
-                                  className={`text-[11px] px-2.5 py-0.5 rounded-full border font-medium ${verBadge.className}`}
-                                >
-                                  {verBadge.label}
-                                </span>
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span
-                                  className={`text-[11px] px-2.5 py-0.5 rounded-full border ${freshBadge.className}`}
-                                >
-                                  {freshBadge.label}
-                                </span>
-                                <span className="text-[11px] px-2 py-0.5 rounded bg-white/[0.05] text-slate-300 font-mono">
-                                  Confidence: {Math.round(item.confidence * 100)}%
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Headline & Summary */}
-                            <h3
-                              onClick={() => setSelectedResult(item)}
-                              className="text-lg sm:text-xl font-semibold text-white group-hover:text-amber-300 transition cursor-pointer mb-2"
+                      <div className="space-y-3.5">
+                        {filteredFeed.articles.map((article: any) => {
+                          const isLiked = !!likedIds[article.id];
+                          return (
+                            <article
+                              key={article.id}
+                              className="group rounded-3xl bg-[#121620]/90 hover:bg-[#161B28] border border-white/[0.08] hover:border-amber-400/35 p-5 sm:p-6 transition-all duration-200 shadow-lg shadow-black/20"
                             >
-                              {item.title}
-                            </h3>
-
-                            <p className="text-sm text-slate-300 leading-relaxed mb-4">
-                              {item.summary}
-                            </p>
-
-                            {/* Timestamps Row (Published, Updated, Verified) */}
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-3 rounded-2xl bg-[#0B0D11]/90 border border-white/[0.05] text-[11px] text-slate-400 mb-4">
-                              <div>
-                                <span className="text-slate-500 block">Published (Source):</span>
-                                <span className="text-slate-200 font-medium">
-                                  {formatDisplayTimestamp(item.published_at)}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-slate-500 block">Last Updated (Source):</span>
-                                <span className="text-slate-200 font-medium">
-                                  {formatDisplayTimestamp(item.updated_at || item.published_at)}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-slate-500 block">Verified by AiRA (UTC→Local):</span>
-                                <span className="text-emerald-300 font-medium">
-                                  {formatDisplayTimestamp(item.verified_at)}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Citations & Actions Footer */}
-                            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-white/[0.06]">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                {item.citations.map((cit) => (
-                                  <a
-                                    key={cit.citationId}
-                                    href={cit.canonicalUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-[11px] px-2.5 py-1 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-400/25 flex items-center gap-1 transition"
-                                    title={`Citation ${cit.citationId}: ${cit.title}`}
+                              <div className="flex flex-col sm:flex-row gap-5">
+                                {article.coverImage && (
+                                  <div
+                                    onClick={() => setSelectedArticle(article)}
+                                    className="sm:w-48 sm:h-36 h-44 w-full rounded-2xl overflow-hidden shrink-0 cursor-pointer border border-white/[0.07]"
                                   >
-                                    <Link2 className="w-3 h-3" />
-                                    <span>
-                                      [{cit.citationId}] {cit.sourceName} (Tier {cit.sourceTier})
-                                    </span>
-                                  </a>
-                                ))}
+                                    <img
+                                      src={article.coverImage}
+                                      alt={article.title}
+                                      loading="lazy"
+                                      onError={(e) => {
+                                        (e.currentTarget as HTMLImageElement).src = FALLBACK_STAGE_IMAGE;
+                                      }}
+                                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                    />
+                                  </div>
+                                )}
+
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                                    <div className="flex items-center gap-2.5">
+                                      <img
+                                        src={article.authorAvatar}
+                                        alt={article.author}
+                                        className="w-7 h-7 rounded-full object-cover border border-white/15"
+                                      />
+                                      <span className="text-xs font-medium text-slate-300">
+                                        {article.author}
+                                      </span>
+                                      <span className="text-slate-600">•</span>
+                                      <span className="text-xs text-slate-400">
+                                        {article.publishedAt}
+                                      </span>
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      {article.signalScore && (
+                                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                          {article.signalScore}% Signal
+                                        </span>
+                                      )}
+                                      {article.sourceName && (
+                                        <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-cyan-400/10 text-cyan-300 border border-cyan-400/20">
+                                          {article.sourceName}
+                                        </span>
+                                      )}
+                                      <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-amber-400/10 text-amber-300 border border-amber-400/20">
+                                        {article.category}
+                                      </span>
+                                      <span className="text-xs text-slate-400 flex items-center gap-1">
+                                        <Clock className="w-3 h-3" />
+                                        {article.readTime}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <h3
+                                    onClick={() => setSelectedArticle(article)}
+                                    className="text-lg sm:text-xl font-semibold text-white group-hover:text-amber-300 transition cursor-pointer mb-2"
+                                  >
+                                    {article.title}
+                                  </h3>
+
+                                  <p className="text-sm text-slate-300 leading-relaxed mb-4 line-clamp-3">
+                                    {article.snippet}
+                                  </p>
+                                </div>
                               </div>
 
-                              <div className="flex items-center gap-3">
-                                <button
-                                  onClick={() => toggleLike(item.id)}
-                                  className={`text-xs flex items-center gap-1 transition ${
-                                    isLiked
-                                      ? "text-rose-400 font-semibold"
-                                      : "text-slate-400 hover:text-white"
-                                  }`}
-                                >
-                                  <Heart
-                                    className={`w-3.5 h-3.5 ${isLiked ? "fill-rose-400" : ""}`}
-                                  />
-                                  <span>{isLiked ? "Liked" : "Like"}</span>
-                                </button>
+                              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-white/[0.06]">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {article.tags?.map((tag: string, idx: number) => (
+                                    <button
+                                      key={idx}
+                                      onClick={() => setKeywordFilter(tag.replace(/^#/, ""))}
+                                      className="text-[11px] text-slate-400 hover:text-amber-300 bg-white/[0.04] hover:bg-amber-400/10 px-2.5 py-0.5 rounded-md transition"
+                                      title="Filter feed by this tag"
+                                    >
+                                      {tag}
+                                    </button>
+                                  ))}
+                                </div>
 
-                                <button
-                                  onClick={() => toggleBookmark(item)}
-                                  className={`text-xs flex items-center gap-1 transition ${
-                                    isBookmarked(item.id)
-                                      ? "text-amber-400 font-semibold"
-                                      : "text-slate-400 hover:text-white"
-                                  }`}
-                                >
-                                  <Bookmark
-                                    className={`w-3.5 h-3.5 ${
-                                      isBookmarked(item.id) ? "fill-amber-400" : ""
+                                <div className="flex items-center gap-3">
+                                  <button
+                                    onClick={() => toggleLike(article.id)}
+                                    className={`text-xs flex items-center gap-1 transition ${
+                                      isLiked ? "text-rose-400 font-semibold" : "text-slate-400 hover:text-white"
                                     }`}
-                                  />
-                                  <span>{isBookmarked(item.id) ? "Saved" : "Save"}</span>
-                                </button>
+                                  >
+                                    <Heart
+                                      className={`w-3.5 h-3.5 ${isLiked ? "fill-rose-400" : ""}`}
+                                    />
+                                    <span>{article.likes + (isLiked ? 1 : 0)}</span>
+                                  </button>
 
-                                <a
-                                  href={item.canonical_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs font-medium text-cyan-300 hover:text-cyan-200 flex items-center gap-1 pl-2 border-l border-white/10"
-                                >
-                                  <span>Original Source</span>
-                                  <ExternalLink className="w-3.5 h-3.5" />
-                                </a>
+                                  <button
+                                    onClick={() => toggleBookmark(article, "article")}
+                                    className={`text-xs flex items-center gap-1 transition ${
+                                      isBookmarked(article.id)
+                                        ? "text-amber-400 font-semibold"
+                                        : "text-slate-400 hover:text-white"
+                                    }`}
+                                  >
+                                    <Bookmark
+                                      className={`w-3.5 h-3.5 ${
+                                        isBookmarked(article.id) ? "fill-amber-400" : ""
+                                      }`}
+                                    />
+                                    <span>Save</span>
+                                  </button>
 
-                                <button
-                                  onClick={() => setSelectedResult(item)}
-                                  className="text-xs font-medium text-amber-300 hover:text-amber-200 flex items-center gap-1 pl-2 border-l border-white/10 cursor-pointer"
-                                >
-                                  <span>Inspect Evidence</span>
-                                  <ArrowUpRight className="w-3.5 h-3.5" />
-                                </button>
+                                  <button
+                                    onClick={() => handleShareItem(article.title, article.sourceUrl)}
+                                    className="text-xs text-slate-400 hover:text-white flex items-center gap-1 transition"
+                                    title="Share Story Link"
+                                  >
+                                    <Share2 className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  {article.sourceUrl && (
+                                    <a
+                                      href={article.sourceUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-xs text-cyan-300 hover:text-cyan-200 flex items-center gap-1 pl-2 border-l border-white/10"
+                                    >
+                                      <span>Source</span>
+                                      <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                  )}
+
+                                  <button
+                                    onClick={() => setSelectedArticle(article)}
+                                    className="text-xs font-medium text-amber-300 hover:text-amber-200 flex items-center gap-1 pl-2 border-l border-white/10 cursor-pointer"
+                                  >
+                                    <span>Read Reader View</span>
+                                    <ArrowUpRight className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          </article>
-                        );
-                      })}
+                            </article>
+                          );
+                        })}
+                      </div>
                     </div>
+                  )}
+
+                {/* SECTION 3: VLOGS */}
+                {(activeMediaFilter === "all" || activeMediaFilter === "vlogs") &&
+                  filteredFeed.vlogs.length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between px-1">
+                        <div className="flex items-center gap-2">
+                          <span className="p-2 rounded-xl bg-rose-500/15 text-rose-300 border border-rose-500/25">
+                            <Video className="w-4 h-4" />
+                          </span>
+                          <div>
+                            <h2 className="text-lg font-semibold text-white">
+                              Live Related Vlogs & Video Streams
+                            </h2>
+                            <p className="text-xs text-slate-400">
+                              Broadcaster highlights, interviews, reviews & video explainers playable inside AiRA
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {filteredFeed.vlogs.map((vlog: any) => (
+                          <div
+                            key={vlog.id}
+                            onClick={() => setSelectedVlog(vlog)}
+                            className="group rounded-3xl overflow-hidden bg-[#121620] border border-white/[0.08] hover:border-rose-400/40 transition cursor-pointer flex flex-col justify-between shadow-xl shadow-black/10"
+                          >
+                            <div className="relative h-48 overflow-hidden">
+                              <img
+                                src={vlog.thumbnailUrl}
+                                alt={vlog.title}
+                                loading="lazy"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).src = FALLBACK_STAGE_IMAGE;
+                                }}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                              />
+                              <div className="absolute inset-0 bg-black/40 group-hover:bg-black/25 transition flex items-center justify-center">
+                                <div className="w-12 h-12 rounded-full bg-rose-500/90 text-white flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform">
+                                  <Play className="w-5 h-5 fill-white ml-0.5" />
+                                </div>
+                              </div>
+                              {vlog.signalScore && (
+                                <span className="absolute top-3 left-3 px-2 py-0.5 rounded-full bg-emerald-500/85 text-slate-950 font-bold text-[10px]">
+                                  {vlog.signalScore}% Signal
+                                </span>
+                              )}
+                              <span className="absolute bottom-3 right-3 px-2.5 py-1 rounded-lg bg-black/75 text-white text-xs font-medium">
+                                {vlog.duration}
+                              </span>
+                            </div>
+
+                            <div className="p-5 flex-1 flex flex-col justify-between">
+                              <div>
+                                <div className="flex items-center justify-between text-xs text-slate-400 mb-1.5">
+                                  <span className="font-medium text-rose-300">
+                                    {vlog.creator}
+                                  </span>
+                                  <span>{vlog.views}</span>
+                                </div>
+                                <h3 className="text-base font-semibold text-white group-hover:text-rose-200 transition mb-2.5">
+                                  {vlog.title}
+                                </h3>
+                              </div>
+
+                              <p className="text-xs italic text-slate-300 bg-white/[0.03] p-3 rounded-xl border border-white/[0.05] line-clamp-2">
+                                {vlog.highlightQuote}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                {/* RELATED TOPICS & PROGRESSIVE DISCOVERY BAR */}
+                <div className="rounded-3xl bg-[#121620]/90 border border-white/[0.08] p-5 sm:p-6 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Compass className="w-4 h-4 text-cyan-400" />
+                      <h3 className="text-sm font-semibold text-white">
+                        Explore Related Topics & Sub-Streams
+                      </h3>
+                    </div>
+                    <button
+                      onClick={handleLoadMoreItems}
+                      className="px-3.5 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.1] text-xs font-medium text-amber-300 transition flex items-center gap-1.5"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Load More Stories & Media</span>
+                    </button>
                   </div>
-                )}
+
+                  <div className="flex flex-wrap gap-2">
+                    {(currentTurn.feedData.relatedTopics || []).map((topic: string, idx: number) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleSendQuery(topic)}
+                        className="px-3.5 py-2 rounded-xl bg-[#0B0D11] hover:bg-amber-400/15 border border-white/[0.08] hover:border-amber-400/40 text-xs text-slate-200 hover:text-amber-200 transition flex items-center gap-1.5"
+                      >
+                        <span>{topic}</span>
+                        <ArrowUpRight className="w-3.5 h-3.5 text-slate-500" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </>
-            ) : null}
+            ) : (
+              <div className="rounded-3xl bg-[#121620] border border-white/[0.08] p-8 space-y-6 animate-pulse">
+                <div className="h-7 bg-white/10 rounded w-1/2" />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="h-56 bg-white/5 rounded-2xl" />
+                  <div className="h-56 bg-white/5 rounded-2xl" />
+                </div>
+                <div className="h-32 bg-white/5 rounded-2xl" />
+              </div>
+            )}
           </section>
         </main>
       )}
 
-      {/* EVIDENCE & CITATION INSPECTOR MODAL */}
-      {selectedResult && (
+      {/* ARTICLE MODAL */}
+      {selectedArticle && (
         <div
-          onClick={() => setSelectedResult(null)}
+          onClick={() => setSelectedArticle(null)}
           className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
         >
           <div
@@ -1536,377 +1703,321 @@ export default function App() {
             className="bg-[#131824] border border-white/15 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6 sm:p-8 shadow-2xl space-y-5"
           >
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <div>
-                <p className="text-sm font-bold text-white">
-                  {selectedResult.source_name} ({selectedResult.source_domain})
-                </p>
-                <p className="text-xs text-slate-400">
-                  Trust Tier {selectedResult.source_tier} • Type: {selectedResult.source_type} • Provider:{" "}
-                  {selectedResult.provider}
-                </p>
+              <div className="flex items-center gap-3">
+                <img
+                  src={selectedArticle.authorAvatar}
+                  alt={selectedArticle.author}
+                  className="w-10 h-10 rounded-full object-cover"
+                />
+                <div>
+                  <p className="text-sm font-semibold text-white">
+                    {selectedArticle.author}
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {selectedArticle.publishedAt} • {selectedArticle.readTime}
+                  </p>
+                </div>
               </div>
               <button
-                onClick={() => setSelectedResult(null)}
+                onClick={() => setSelectedArticle(null)}
                 className="p-2 rounded-full bg-white/5 hover:bg-white/10 text-slate-300"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <span
-                className={`text-xs px-3 py-1 rounded-full border ${
-                  getVerificationBadgeMeta(selectedResult).className
-                }`}
-              >
-                {getVerificationBadgeMeta(selectedResult).label}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-block text-xs px-3 py-1 rounded-full bg-amber-400/15 text-amber-300 border border-amber-400/30">
+                {selectedArticle.category}
               </span>
-              <span
-                className={`text-xs px-3 py-1 rounded-full border ${
-                  getFreshnessBadgeMeta(selectedResult.freshness_status).className
-                }`}
-              >
-                {getFreshnessBadgeMeta(selectedResult.freshness_status).label}
-              </span>
+              {selectedArticle.sourceName && (
+                <span className="inline-block text-xs px-3 py-1 rounded-full bg-cyan-400/15 text-cyan-300 border border-cyan-400/30">
+                  Source: {selectedArticle.sourceName}
+                </span>
+              )}
             </div>
 
-            <h2 className="text-2xl font-bold text-white leading-tight">
-              {selectedResult.title}
+            <h2 className="text-2xl sm:text-3xl font-bold text-white leading-tight">
+              {selectedArticle.title}
             </h2>
 
+            {selectedArticle.coverImage && (
+              <div className="rounded-2xl overflow-hidden max-h-64 bg-black">
+                <img
+                  src={selectedArticle.coverImage}
+                  alt={selectedArticle.title}
+                  className="w-full h-64 object-cover"
+                />
+              </div>
+            )}
+
             <p className="text-base text-slate-200 leading-relaxed whitespace-pre-line">
-              {selectedResult.summary}
+              {selectedArticle.fullContent}
             </p>
 
-            <div className="rounded-2xl bg-[#0B0D11] border border-white/10 p-4 space-y-2 text-xs">
-              <p className="font-semibold text-cyan-300">
-                Standardized Provenance & Citation Metadata
-              </p>
-              <p className="text-slate-300">
-                <strong>Canonical URL:</strong>{" "}
-                <a
-                  href={selectedResult.canonical_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-cyan-300 underline break-all"
-                >
-                  {selectedResult.canonical_url}
-                </a>
-              </p>
-              <p className="text-slate-300">
-                <strong>Published At:</strong> {formatDisplayTimestamp(selectedResult.published_at)}
-              </p>
-              <p className="text-slate-300">
-                <strong>Updated At:</strong> {formatDisplayTimestamp(selectedResult.updated_at)}
-              </p>
-              <p className="text-slate-300">
-                <strong>Retrieved & Verified At:</strong>{" "}
-                {formatDisplayTimestamp(selectedResult.verified_at)}
-              </p>
-              <p className="text-slate-300">
-                <strong>Cache Expires At:</strong>{" "}
-                {formatDisplayTimestamp(selectedResult.expires_at)}
-              </p>
-              <p className="text-slate-300">
-                <strong>Independent Corroboration:</strong>{" "}
-                {selectedResult.corroborated_by.join(", ")}
-              </p>
-            </div>
-
             <div className="pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-3">
-              <span className="text-[11px] text-slate-400">
-                Metadata & summary excerpt only; full copyrighted text remains on publisher domain.
-              </span>
-              <a
-                href={selectedResult.canonical_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-semibold text-xs flex items-center gap-1.5"
-              >
-                <span>Read on {selectedResult.source_name}</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
+              <div className="flex flex-wrap gap-2">
+                {selectedArticle.tags?.map((t: string, i: number) => (
+                  <span
+                    key={i}
+                    className="text-xs px-2.5 py-1 rounded-lg bg-white/5 text-slate-300"
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                {selectedArticle.sourceUrl && (
+                  <a
+                    href={selectedArticle.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-medium text-xs flex items-center gap-1.5 transition"
+                  >
+                    <span>Open Live Source</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+                <button
+                  onClick={() => {
+                    handleSendQuery(`Tell me more about: ${selectedArticle.title}`);
+                    setSelectedArticle(null);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-amber-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5 hover:bg-amber-300 transition"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Discuss with AiRA</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* ADMIN SOURCE REGISTRY & VERIFICATION CONSOLE MODAL (SECTION 5) */}
-      {showRegistryModal && (
+      {/* PHOTOLOG MODAL */}
+      {selectedPhoto && (
         <div
-          onClick={() => setShowRegistryModal(false)}
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+          onClick={() => setSelectedPhoto(null)}
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-[#11151E] border border-white/15 rounded-3xl max-w-5xl w-full max-h-[88vh] flex flex-col overflow-hidden shadow-2xl"
+            className="bg-[#121620] border border-white/15 rounded-3xl max-w-3xl w-full overflow-hidden shadow-2xl"
           >
-            <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between bg-[#0B0D11]">
-              <div className="flex items-center gap-2.5">
-                <Database className="w-5 h-5 text-cyan-400" />
-                <div>
-                  <h3 className="font-bold text-white text-base">
-                    Central Source Registry & Verification Governance Console
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Manage approved domains, trust tiers, freshness policies, rejected URLs, and audit logs
-                  </p>
-                </div>
-              </div>
+            <div className="relative max-h-[65vh] bg-black flex items-center justify-center">
+              <img
+                src={selectedPhoto.imageUrl}
+                alt={selectedPhoto.caption}
+                className="max-h-[65vh] w-auto object-contain"
+              />
               <button
-                onClick={() => setShowRegistryModal(false)}
-                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300"
+                onClick={() => setSelectedPhoto(null)}
+                className="absolute top-4 right-4 p-2 rounded-full bg-black/70 text-white hover:bg-black"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-
-            {/* Modal Tabs */}
-            <div className="px-6 py-3 bg-[#0E121B] border-b border-white/10 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
+            <div className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-amber-300 mb-1">
+                  <span>{selectedPhoto.photographer}</span>
+                  <span>•</span>
+                  <span>{selectedPhoto.location}</span>
+                  <span>•</span>
+                  <span className="text-slate-400">{selectedPhoto.cameraSpec}</span>
+                </div>
+                <p className="text-base text-white">{selectedPhoto.caption}</p>
+                {selectedPhoto.contextualText && (
+                  <p className="text-xs text-slate-400 mt-1.5 line-clamp-2">
+                    {selectedPhoto.contextualText}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {selectedPhoto.sourceUrl && (
+                  <a
+                    href={selectedPhoto.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-cyan-300 flex items-center gap-1.5"
+                  >
+                    <span>Source</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
                 <button
-                  onClick={() => setRegistryTab("sources")}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition ${
-                    registryTab === "sources"
-                      ? "bg-cyan-400 text-slate-950"
-                      : "bg-white/5 text-slate-300 hover:bg-white/10"
-                  }`}
+                  onClick={() => toggleBookmark(selectedPhoto, "photolog")}
+                  className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-white flex items-center gap-1.5"
                 >
-                  Source Registry ({registrySources.length})
-                </button>
-                <button
-                  onClick={() => setRegistryTab("rejected")}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition ${
-                    registryTab === "rejected"
-                      ? "bg-rose-400 text-slate-950"
-                      : "bg-white/5 text-slate-300 hover:bg-white/10"
-                  }`}
-                >
-                  Rejected Source Logs ({rejectedLogs.length})
-                </button>
-                <button
-                  onClick={() => setRegistryTab("audit")}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition ${
-                    registryTab === "audit"
-                      ? "bg-amber-400 text-slate-950"
-                      : "bg-white/5 text-slate-300 hover:bg-white/10"
-                  }`}
-                >
-                  Admin Audit Trail ({auditTrail.length})
+                  <Bookmark className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{isBookmarked(selectedPhoto.id) ? "Saved in Vault" : "Save Photo"}</span>
                 </button>
               </div>
-
-              {registryTab === "sources" && (
-                <select
-                  value={registryFilterCategory}
-                  onChange={(e) => setRegistryFilterCategory(e.target.value)}
-                  className="bg-[#0B0D11] border border-white/15 rounded-xl px-3 py-1.5 text-xs text-slate-200"
-                >
-                  <option value="all">All Categories</option>
-                  <option value="sports">Sports & Broadcasters</option>
-                  <option value="live_scores">Live Scores APIs</option>
-                  <option value="news">News & Journalism</option>
-                  <option value="technology">Technology & Docs</option>
-                  <option value="brands">Brands & Newsrooms</option>
-                  <option value="science">Science & Research</option>
-                  <option value="finance">Financial Markets</option>
-                  <option value="travel">Official Travel</option>
-                </select>
-              )}
             </div>
+          </div>
+        </div>
+      )}
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              {registryTab === "sources" && (
+      {/* VLOG MODAL WITH LIVE EMBED PLAYER */}
+      {selectedVlog && (
+        <div
+          onClick={() => setSelectedVlog(null)}
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#131824] border border-white/15 rounded-3xl max-w-2xl w-full overflow-hidden shadow-2xl"
+          >
+            <div className="relative h-72 sm:h-96 bg-black">
+              {selectedVlog.embedUrl ? (
+                <iframe
+                  src={selectedVlog.embedUrl}
+                  title={selectedVlog.title}
+                  className="w-full h-full border-0"
+                  allow="autoplay; fullscreen; picture-in-picture"
+                  allowFullScreen
+                />
+              ) : (
                 <>
-                  {/* Add New Candidate Source Form */}
-                  <form
-                    onSubmit={handleAdminAddSource}
-                    className="p-4 rounded-2xl bg-[#0B0D11] border border-white/10 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end"
-                  >
-                    <div>
-                      <label className="block text-[11px] text-slate-400 mb-1">
-                        Publisher / Organization Name
-                      </label>
-                      <input
-                        type="text"
-                        value={newSourceName}
-                        onChange={(e) => setNewSourceName(e.target.value)}
-                        placeholder="e.g. IEEE Official"
-                        className="w-full bg-[#131824] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white"
-                      />
+                  <img
+                    src={selectedVlog.thumbnailUrl}
+                    alt={selectedVlog.title}
+                    className="w-full h-full object-cover opacity-65"
+                  />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gradient-to-t from-[#131824] via-black/40 to-transparent">
+                    <div className="w-16 h-16 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-2xl mb-3 animate-pulse">
+                      <Volume2 className="w-7 h-7" />
                     </div>
-                    <div>
-                      <label className="block text-[11px] text-slate-400 mb-1">
-                        Canonical Domain
-                      </label>
-                      <input
-                        type="text"
-                        value={newSourceDomain}
-                        onChange={(e) => setNewSourceDomain(e.target.value)}
-                        placeholder="e.g. ieee.org"
-                        className="w-full bg-[#131824] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] text-slate-400 mb-1">
-                        Category
-                      </label>
-                      <select
-                        value={newSourceCategory}
-                        onChange={(e) => setNewSourceCategory(e.target.value as ContentCategory)}
-                        className="w-full bg-[#131824] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white"
-                      >
-                        <option value="news">News & Journalism</option>
-                        <option value="sports">Sports</option>
-                        <option value="technology">Technology</option>
-                        <option value="brands">Brands</option>
-                        <option value="science">Science</option>
-                        <option value="finance">Finance</option>
-                      </select>
-                    </div>
-                    <button
-                      type="submit"
-                      className="px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-semibold text-xs"
-                    >
-                      + Register Candidate
-                    </button>
-                  </form>
-
-                  {/* Sources Table */}
-                  <div className="space-y-2.5">
-                    {registrySources
-                      .filter(
-                        (s) =>
-                          registryFilterCategory === "all" ||
-                          s.category === registryFilterCategory
-                      )
-                      .map((src) => (
-                        <div
-                          key={src.id}
-                          className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] flex flex-col md:flex-row md:items-center justify-between gap-4"
-                        >
-                          <div className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-semibold text-sm text-white">
-                                {src.publisherName}
-                              </span>
-                              <span className="font-mono text-xs text-cyan-300 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-500/30">
-                                {src.canonicalDomain}
-                              </span>
-                              <span className="text-[10px] uppercase px-2 py-0.5 rounded bg-white/10 text-slate-300">
-                                Tier {src.trustTier} • {src.category}
-                              </span>
-                              <span
-                                className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
-                                  src.approvalStatus === "approved"
-                                    ? "bg-emerald-500/20 text-emerald-300"
-                                    : src.approvalStatus === "pending_review"
-                                    ? "bg-amber-500/20 text-amber-300"
-                                    : "bg-rose-500/20 text-rose-300"
-                                }`}
-                              >
-                                {src.approvalStatus}
-                              </span>
-                            </div>
-                            <p className="text-xs text-slate-400">
-                              Subdomains: {src.approvedSubdomains.join(", ")} • Max Age:{" "}
-                              {src.maxContentAgeMs > 0
-                                ? `${Math.round(src.maxContentAgeMs / 3600000)}h`
-                                : "Blocked"}{" "}
-                              • Health: {src.integrationHealth}
-                            </p>
-                            <p className="text-[11px] text-slate-500">{src.adminNotes}</p>
-                          </div>
-
-                          <div className="flex items-center gap-2 shrink-0">
-                            {src.approvalStatus !== "approved" && (
-                              <button
-                                onClick={() => handleAdminStatusChange(src.id, "approved")}
-                                className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-400/30 text-xs flex items-center gap-1"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Approve</span>
-                              </button>
-                            )}
-                            {src.approvalStatus === "approved" && (
-                              <button
-                                onClick={() => handleAdminStatusChange(src.id, "suspended")}
-                                className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/30 text-xs flex items-center gap-1"
-                              >
-                                <Ban className="w-3.5 h-3.5" />
-                                <span>Suspend</span>
-                              </button>
-                            )}
-                            {src.approvalStatus !== "rejected" && (
-                              <button
-                                onClick={() => handleAdminStatusChange(src.id, "rejected")}
-                                className="px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-400/30 text-xs flex items-center gap-1"
-                              >
-                                <XCircle className="w-3.5 h-3.5" />
-                                <span>Reject</span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                    <span className="text-xs uppercase tracking-widest px-3 py-1 rounded-full bg-rose-500/20 text-rose-200 border border-rose-400/30 mb-2">
+                      Playing Video Stream Preview • {selectedVlog.duration}
+                    </span>
+                    <p className="text-sm text-slate-200 max-w-md italic">
+                      {selectedVlog.highlightQuote}
+                    </p>
                   </div>
                 </>
               )}
+              <button
+                onClick={() => setSelectedVlog(null)}
+                className="absolute top-4 right-4 p-2 rounded-full bg-black/70 text-white hover:bg-black z-10"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <p className="text-xs text-rose-300 font-medium mb-1">
+                  {selectedVlog.creator} • {selectedVlog.views}
+                </p>
+                <h3 className="text-lg font-bold text-white">{selectedVlog.title}</h3>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {selectedVlog.sourceUrl && (
+                  <a
+                    href={selectedVlog.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-cyan-300 flex items-center gap-1.5"
+                  >
+                    <span>Watch on Source</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+                <button
+                  onClick={() => {
+                    handleSendQuery(
+                      `Summarize key takeaways from the vlog "${selectedVlog.title}"`
+                    );
+                    setSelectedVlog(null);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-amber-400 text-slate-950 font-semibold text-xs"
+                >
+                  Ask AiRA About This
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
-              {registryTab === "rejected" && (
-                <div className="space-y-2.5">
-                  {rejectedLogs.length === 0 ? (
-                    <p className="text-xs text-slate-400 text-center py-8">
-                      No rejected candidate URLs recorded in the current session yet.
-                    </p>
-                  ) : (
-                    rejectedLogs.map((log, i) => (
-                      <div
-                        key={i}
-                        className="p-3.5 rounded-2xl bg-rose-950/20 border border-rose-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
-                      >
-                        <div>
-                          <span className="font-mono text-[10px] uppercase px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 mr-2">
-                            {log.reasonCode}
-                          </span>
-                          <span className="text-white font-medium break-all">{log.url}</span>
-                          <p className="text-slate-400 mt-1">{log.detail}</p>
-                        </div>
-                        <span className="text-[11px] text-slate-500 shrink-0">
-                          {formatDisplayTimestamp(log.timestamp)}
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
+      {/* LIVE AI & FILTER SETTINGS MODAL */}
+      {showApiKeyModal && (
+        <div
+          onClick={() => setShowApiKeyModal(false)}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#131824] border border-white/15 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5"
+          >
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-cyan-400" />
+                <h3 className="font-semibold text-white text-base">
+                  Live Curation & Filter Settings
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowApiKeyModal(false)}
+                className="p-1.5 rounded-lg bg-white/5 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-              {registryTab === "audit" && (
-                <div className="space-y-2.5">
-                  {auditTrail.length === 0 ? (
-                    <p className="text-xs text-slate-400 text-center py-8">
-                      No administrative configuration changes logged in this session yet.
-                    </p>
-                  ) : (
-                    auditTrail.map((entry) => (
-                      <div
-                        key={entry.id}
-                        className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center justify-between text-xs"
-                      >
-                        <div>
-                          <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-amber-400/20 text-amber-300 mr-2">
-                            {entry.action}
-                          </span>
-                          <span className="text-slate-200">{entry.summary}</span>
-                        </div>
-                        <span className="text-[11px] text-slate-500">
-                          {formatDisplayTimestamp(entry.timestamp)}
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
+            <div className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">
+                  Minimum Signal Score Threshold ({minSignalScore}%)
+                </label>
+                <input
+                  type="range"
+                  min={60}
+                  max={95}
+                  value={minSignalScore}
+                  onChange={(e) => setMinSignalScore(Number(e.target.value))}
+                  className="w-full accent-cyan-400"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Higher values strictly filter out low-signal or loosely matching items.
+                </p>
+              </div>
+
+              <div className="pt-3 border-t border-white/10">
+                <label className="block text-slate-300 font-medium mb-1">
+                  Optional Gemini API Key (for AI Summary Synthesis)
+                </label>
+                <input
+                  type="password"
+                  value={geminiApiKey}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setGeminiApiKey(val);
+                    try {
+                      localStorage.setItem("aira_gemini_api_key", val);
+                    } catch {
+                      // ignore storage error
+                    }
+                  }}
+                  placeholder="AIzaSy... (Optional — Live curation works without key)"
+                  className="w-full bg-[#0B0D11] border border-white/15 rounded-xl px-3 py-2 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-400"
+                />
+                <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
+                  AiRA curates live blogs, editorial photologs, video vlogs, and live scorecards automatically from trusted broadcasters, publishers, and official channels. Adding a Gemini key enables AI-written conversational summaries.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => {
+                  setShowApiKeyModal(false);
+                  triggerToast("Saved Live Filter & AI preferences");
+                }}
+                className="px-4 py-2 rounded-xl bg-cyan-400 text-slate-950 font-semibold text-xs"
+              >
+                Done
+              </button>
             </div>
           </div>
         </div>
@@ -1926,7 +2037,7 @@ export default function App() {
               <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-5">
                 <div className="flex items-center gap-2">
                   <Bookmark className="w-4 h-4 text-amber-400" />
-                  <h3 className="font-semibold text-white">Balaji’s Verified Vault</h3>
+                  <h3 className="font-semibold text-white">Balaji’s Saved Vault</h3>
                 </div>
                 <button
                   onClick={() => setShowSavedDrawer(false)}
@@ -1940,10 +2051,10 @@ export default function App() {
                 <div className="text-center py-12 px-4">
                   <Bookmark className="w-8 h-8 text-slate-600 mx-auto mb-3" />
                   <p className="text-sm text-slate-300 font-medium mb-1">
-                    Your Verified Vault is empty
+                    Your Vault is empty
                   </p>
                   <p className="text-xs text-slate-500">
-                    Bookmark any verified article or primary release to save its citation and link here.
+                    Bookmark any live blog post or photolog generated during your conversations to keep it here.
                   </p>
                 </div>
               ) : (
@@ -1954,23 +2065,18 @@ export default function App() {
                       className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-start justify-between gap-3"
                     >
                       <div>
-                        <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-400/15 text-emerald-300">
-                          {item.source_name} (Tier {item.source_tier})
+                        <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-amber-400/15 text-amber-300">
+                          {item.mediaType}
                         </span>
-                        <a
-                          href={item.canonical_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="block text-sm font-medium text-white hover:text-amber-300 mt-1.5"
-                        >
-                          {item.title}
-                        </a>
+                        <p className="text-sm font-medium text-white mt-1.5">
+                          {item.title || item.caption}
+                        </p>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          Published: {formatDisplayTimestamp(item.published_at)}
+                          {item.author || item.photographer}
                         </p>
                       </div>
                       <button
-                        onClick={() => toggleBookmark(item)}
+                        onClick={() => toggleBookmark(item, item.mediaType)}
                         className="text-xs text-slate-500 hover:text-rose-400"
                       >
                         <X className="w-4 h-4" />

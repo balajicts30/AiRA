@@ -9,7 +9,12 @@ import {
   evaluateSportsScoreFreshness,
   isHistoricalQueryIntent
 } from "../freshnessPolicy";
-import { TrustedSearchOrchestrator } from "../searchOrchestrator";
+import {
+  extractBestPublisherImageFromXml,
+  resolveArticleOrPhotoMedia,
+  validateMediaUrl
+} from "../mediaResolver";
+import { analyzeSearchIntent, TrustedSearchOrchestrator } from "../searchOrchestrator";
 import { SourceRegistryService } from "../sourceRegistry";
 import { CandidateItem } from "../types";
 import { isPrivateOrProhibitedHost, verifyUrlAgainstRegistry } from "../urlSecurity";
@@ -28,7 +33,7 @@ function assertCondition(condition: boolean, message: string): void {
   }
 }
 
-export async function runAllEngineTests(): Promise<{
+export async function runAllEngineTests(options?: { appSource?: string }): Promise<{
   total: number;
   passed: number;
   failed: number;
@@ -611,6 +616,233 @@ export async function runAllEngineTests(): Promise<{
         bypassCache: true
       });
       assertCondition(searchOut.results.length > 0, "Expected verified results for India cricket");
+    }
+  );
+
+  // ==========================================================================
+  // SUITE 6: PRODUCT EXPERIENCE, MULTIMODAL DISCOVERY & UI PRESERVATION
+  // ==========================================================================
+  await test(
+    "Multimodal Discovery",
+    "Intent-aware query analyzer classifies broad, live, video, review, and official queries accurately",
+    () => {
+      const broadF1 = analyzeSearchIntent("Formula 1");
+      assertCondition(
+        broadF1.primaryCategory === "sports",
+        `Expected Formula 1 to map to sports, got ${broadF1.primaryCategory}`
+      );
+      assertCondition(
+        broadF1.intentType === "broad_discovery",
+        `Expected Formula 1 to have broad_discovery intent, got ${broadF1.intentType}`
+      );
+
+      const liveF1 = analyzeSearchIntent("F1 live race");
+      assertCondition(
+        liveF1.intentType === "live_event",
+        `Expected 'F1 live race' to have live_event intent, got ${liveF1.intentType}`
+      );
+
+      const highlightsF1 = analyzeSearchIntent("F1 race highlights");
+      assertCondition(
+        highlightsF1.intentType === "highlights_video",
+        `Expected 'F1 race highlights' to have highlights_video intent, got ${highlightsF1.intentType}`
+      );
+
+      const ferrariCar = analyzeSearchIntent("Ferrari 2027 car");
+      assertCondition(
+        ferrariCar.primaryCategory === "sports" || ferrariCar.relatedCategories.includes("brands"),
+        "Expected 'Ferrari 2027 car' to target sports/brands"
+      );
+
+      const phoneReview = analyzeSearchIntent("new smartphone camera review comparison");
+      assertCondition(
+        phoneReview.intentType === "product_review_specs",
+        `Expected smartphone review query to have product_review_specs intent, got ${phoneReview.intentType}`
+      );
+    }
+  );
+
+  await test(
+    "Multimodal Discovery",
+    "Broad topic search ('Formula 1') returns multi-publisher articles, photologs, vlogs, live telemetry, and related topics",
+    async () => {
+      const orchestrator = new TrustedSearchOrchestrator(new SourceRegistryService());
+      const f1Out = await orchestrator.executeSearch({
+        query: "Formula 1",
+        bypassCache: true
+      });
+
+      assertCondition(Boolean(f1Out.socialFeed), "Expected socialFeed payload on search response");
+      const feed = f1Out.socialFeed!;
+
+      assertCondition(
+        feed.articles.length >= 2,
+        `Expected multiple articles for Formula 1, got ${feed.articles.length}`
+      );
+      assertCondition(
+        feed.photologs.length >= 2,
+        `Expected multiple photologs for Formula 1, got ${feed.photologs.length}`
+      );
+      assertCondition(
+        feed.vlogs.length >= 1,
+        `Expected at least 1 vlog/video for Formula 1, got ${feed.vlogs.length}`
+      );
+      assertCondition(
+        Boolean(feed.matchScorecard),
+        "Expected live motorsport/sports scorecard card for Formula 1"
+      );
+      assertCondition(
+        feed.qualityMetrics.distinctApprovedPublishers >= 2,
+        `Expected publisher diversity (>=2 publishers) for Formula 1, got ${feed.qualityMetrics.distinctApprovedPublishers}`
+      );
+      assertCondition(
+        feed.relatedTopics.length >= 3,
+        "Expected related discovery topics for Formula 1"
+      );
+    }
+  );
+
+  await test(
+    "Multimodal Discovery",
+    "Handles specialized F1 queries ('F1 live race', 'F1 race highlights', 'Ferrari 2027 car') with diverse formats",
+    async () => {
+      const orchestrator = new TrustedSearchOrchestrator(new SourceRegistryService());
+
+      const liveRaceOut = await orchestrator.executeSearch({
+        query: "F1 live race",
+        bypassCache: true
+      });
+      assertCondition(
+        Boolean(liveRaceOut.socialFeed?.matchScorecard),
+        "Expected live race telemetry scorecard for 'F1 live race'"
+      );
+
+      const highlightsOut = await orchestrator.executeSearch({
+        query: "F1 race highlights",
+        bypassCache: true
+      });
+      assertCondition(
+        (highlightsOut.socialFeed?.vlogs.length || 0) >= 1,
+        "Expected video highlights for 'F1 race highlights'"
+      );
+
+      const ferrariOut = await orchestrator.executeSearch({
+        query: "Ferrari 2027 car",
+        bypassCache: true
+      });
+      assertCondition(
+        (ferrariOut.socialFeed?.articles.length || 0) >= 1 &&
+          (ferrariOut.socialFeed?.photologs.length || 0) >= 1,
+        "Expected both articles and photologs for 'Ferrari 2027 car'"
+      );
+    }
+  );
+
+  await test(
+    "Multimodal Discovery",
+    "Product & tech search ('smartphone') distinguishes Official Announcement vs Independent Review",
+    async () => {
+      const orchestrator = new TrustedSearchOrchestrator(new SourceRegistryService());
+      const techOut = await orchestrator.executeSearch({
+        query: "smartphone",
+        bypassCache: true
+      });
+
+      const articles = techOut.socialFeed?.articles || [];
+      assertCondition(articles.length >= 2, "Expected multiple tech/brand articles for 'smartphone'");
+
+      const hasOfficial = articles.some((a) => a.claimDistinction === "official_announcement");
+      const hasIndependent = articles.some((a) => a.claimDistinction === "independent_review");
+      assertCondition(
+        hasOfficial && hasIndependent,
+        "Expected 'smartphone' feed to include both official_announcement and independent_review cards"
+      );
+    }
+  );
+
+  await test(
+    "Media Resolution",
+    "Validates HTTPS media URLs, rejects tracking pixels & social domains, extracts XML publisher media, and provides clean fallbacks",
+    () => {
+      assertCondition(
+        !validateMediaUrl("ftp://insecure.example.com/photo.jpg"),
+        "Must reject non-HTTP/HTTPS media URL"
+      );
+      assertCondition(
+        !validateMediaUrl("https://x.com/user/photo.jpg"),
+        "Must reject prohibited social media image URL"
+      );
+      assertCondition(
+        !validateMediaUrl("https://www.reuters.com/pixel.gif"),
+        "Must reject tracking pixel URL"
+      );
+      assertCondition(
+        !validateMediaUrl("https://images.unsplash.com/photo-123", 1, 1),
+        "Must reject 1x1 pixel image dimensions"
+      );
+      assertCondition(
+        Boolean(
+          validateMediaUrl(
+            "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=1080&q=85",
+            1080,
+            720
+          )
+        ),
+        "Valid HTTPS editorial image should pass"
+      );
+
+      const xmlSample = `
+        <item>
+          <title>Sample</title>
+          <media:content url="https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=1080" width="1080" height="720" />
+        </item>
+      `;
+      const extracted = extractBestPublisherImageFromXml(xmlSample);
+      assertCondition(
+        extracted?.url === "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=1080",
+        "Expected media:content URL to be extracted from RSS XML"
+      );
+
+      const fallbackMedia = resolveArticleOrPhotoMedia({
+        candidateThumbnailUrl: "https://www.reuters.com/1x1.gif",
+        query: "Formula 1",
+        category: "sports",
+        publisherName: "Formula1.com",
+        index: 0
+      });
+      assertCondition(
+        fallbackMedia.url.startsWith("https://") && !fallbackMedia.isPublisherProvided,
+        "Expected deterministic HTTPS editorial fallback when candidate image is a 1x1 pixel"
+      );
+    }
+  );
+
+  await test(
+    "UI Preservation",
+    "Preserves original social discovery layout, AiraNeonLogo, media tabs, and keeps compliance controls out of the main feed",
+    () => {
+      const appSource = options?.appSource || "";
+      assertCondition(Boolean(appSource), "Expected appSource to be provided by test runner");
+
+      assertCondition(
+        appSource.includes("function AiraNeonLogo"),
+        "Expected original AiraNeonLogo component in src/App.tsx"
+      );
+      assertCondition(
+        appSource.includes("Live Photologs") &&
+          appSource.includes("Blogs & News") &&
+          appSource.includes("Vlogs"),
+        "Expected multimodal sections (Live Photologs, Blogs & News, Vlogs) in src/App.tsx"
+      );
+      assertCondition(
+        appSource.includes("Saved Vault"),
+        "Expected Saved Vault drawer in src/App.tsx"
+      );
+      assertCondition(
+        !appSource.includes("Source Registry Admin") &&
+          !appSource.includes("Compliance Audit Table"),
+        "Expected sterile compliance/admin tables to be absent from the user-facing App.tsx"
+      );
     }
   );
 

@@ -225,6 +225,7 @@ export interface RegistryAuditEntry {
 export interface CandidateItem {
   title: string;
   summary: string;
+  fullContent?: string;
   url: string;
   redirectChain?: string[];
   publishedAt?: string | null;
@@ -233,7 +234,12 @@ export interface CandidateItem {
   category?: ContentCategory;
   tags?: string[];
   thumbnailUrl?: string;
+  embedUrl?: string;
   mediaDuration?: string;
+  location?: string;
+  cameraSpec?: string;
+  viewsLabel?: string;
+  isOfficialClaim?: boolean;
   dataType?: StandardizedSearchResult["data_type"];
   providerName: string;
   sourceIdHint?: string;
@@ -253,6 +259,173 @@ export interface GroundedSummaryOutput {
   isAiGenerated: boolean;
 }
 
+// ============================================================================
+// SOCIAL-FIRST MULTIMODAL DISCOVERY FEED MODELS (SECTIONS 2, 4, 5, 6, 8)
+// ============================================================================
+
+export type QueryIntentType =
+  | "live_event"
+  | "highlights_video"
+  | "visual_photography"
+  | "latest_news"
+  | "product_review_specs"
+  | "historical_context"
+  | "broad_discovery";
+
+export interface SearchIntentProfile {
+  rawQuery: string;
+  cleanTopic: string;
+  entities: string[];
+  primaryCategory: ContentCategory;
+  relatedCategories: ContentCategory[];
+  timeSensitivity: "live" | "breaking" | "recent" | "historical" | "evergreen";
+  intentType: QueryIntentType;
+  detectedMediaFilter: "all" | "articles" | "photologs" | "vlogs" | null;
+  visualTheme: "sports" | "travel" | "food" | "general";
+}
+
+export interface SocialArticleCard {
+  id: string;
+  title: string;
+  author: string;
+  authorAvatar: string;
+  readTime: string;
+  category: string;
+  sourceName: string;
+  sourceDomain: string;
+  sourceUrl: string;
+  coverImage?: string;
+  publishedAt: string;
+  publishedIso: string | null;
+  timestampMs: number;
+  signalScore: number;
+  snippet: string;
+  fullContent: string;
+  tags: string[];
+  likes: number;
+  isOfficialSource?: boolean;
+  claimDistinction?: "official_announcement" | "independent_review" | "verified_reporting";
+  freshnessStatus: FreshnessStatus;
+}
+
+export interface SocialPhotologCard {
+  id: string;
+  caption: string;
+  photographer: string;
+  location: string;
+  sourceName: string;
+  sourceDomain: string;
+  sourceUrl: string;
+  imageUrl: string;
+  aspect: "wide" | "square" | "tall";
+  likes: number;
+  signalScore: number;
+  publishedAt: string;
+  timestampMs: number;
+  cameraSpec: string;
+  contextualText?: string;
+}
+
+export interface SocialVlogCard {
+  id: string;
+  title: string;
+  creator: string;
+  sourceName: string;
+  sourceDomain: string;
+  sourceUrl: string;
+  embedUrl?: string;
+  duration: string;
+  views: string;
+  likes: number;
+  signalScore: number;
+  publishedAt: string;
+  timestampMs: number;
+  thumbnailUrl: string;
+  highlightQuote: string;
+}
+
+export interface SocialMatchScorecard {
+  id: string;
+  event: string;
+  status: string;
+  isLive: boolean;
+  isStale: boolean;
+  team1: { name: string; score: string; overs: string; flag: string };
+  team2: { name: string; score: string; overs: string; flag: string };
+  playerOfMatch: string;
+  upcoming: string;
+  sourceName: string;
+  sourceUrl: string;
+  lastRefreshedAt: string;
+}
+
+export interface DevelopingStoryUpdate {
+  id: string;
+  headline: string;
+  summary: string;
+  sourceName: string;
+  sourceDomain: string;
+  sourceUrl: string;
+  publishedAt: string;
+  timestampMs: number;
+  isLatest: boolean;
+}
+
+export interface DevelopingStoryStream {
+  id: string;
+  storyTitle: string;
+  topicTag: string;
+  publisherCount: number;
+  latestUpdate: DevelopingStoryUpdate;
+  timeline: DevelopingStoryUpdate[];
+}
+
+export interface FeedQualityMetrics {
+  relevantResultsCount: number;
+  distinctApprovedPublishers: number;
+  publisherList: string[];
+  mediaFormatCounts: {
+    articles: number;
+    photologs: number;
+    vlogs: number;
+    liveEvents: number;
+    developingStories: number;
+  };
+  mediaFormatDiversityScore: number; // 0 to 1
+  freshnessComplianceRate: number; // 0 to 1
+  citationValidityRate: number; // 0 to 1
+  duplicateSuppressionCount: number;
+}
+
+export interface SocialDiscoveryFeed {
+  topicTitle: string;
+  searchTopic: string;
+  assistantSummary: string;
+  intent: SearchIntentProfile;
+  matchScorecard: SocialMatchScorecard | null;
+  liveScoreEvents: StructuredSportsEvent[];
+  developingStories: DevelopingStoryStream[];
+  articles: SocialArticleCard[];
+  photologs: SocialPhotologCard[];
+  vlogs: SocialVlogCard[];
+  detectedMediaFilter: string | null;
+  relatedTopics: string[];
+  followUpPrompts: string[];
+  stats: {
+    totalLiveItems: number;
+    filteredNoiseCount: number;
+    sources: string[];
+    fetchedAt: string;
+  };
+  pagination: {
+    page: number;
+    pageSize: number;
+    hasMore: boolean;
+    totalAvailable: number;
+  };
+  qualityMetrics: FeedQualityMetrics;
+}
+
 export interface TrustedSearchEngineResponse {
   query: string;
   detectedCategory: ContentCategory;
@@ -263,6 +436,7 @@ export interface TrustedSearchEngineResponse {
   groundedSynthesis: GroundedSummaryOutput;
   results: StandardizedSearchResult[];
   liveScoreEvents: StructuredSportsEvent[];
+  socialFeed?: SocialDiscoveryFeed;
   diagnostics: {
     candidatesRetrieved: number;
     candidatesVerified: number;
@@ -277,3 +451,4 @@ export interface TrustedSearchEngineResponse {
     }[];
   };
 }
+

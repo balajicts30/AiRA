@@ -85,7 +85,21 @@ export function detectWireSyndication(title: string, summary: string, sourceDoma
   return { isWireSyndicated: false };
 }
 
-export function computeQueryRelevance(query: string, title: string, summary: string): number {
+const TOPIC_SYNONYM_GROUPS: readonly (readonly string[])[] = [
+  ["f1", "formula 1", "formula1", "grand prix", "ferrari", "mclaren", "red bull", "motorsport", "qualifying", "paddock"],
+  ["cricket", "t20", "t20i", "ipl", "bcci", "icc", "chepauk", "bumrah", "suryakumar", "ind", "aus", "test match"],
+  ["smartphone", "phone", "iphone", "samsung", "galaxy", "android", "camera", "flagship", "mobile"],
+  ["japan", "kyoto", "tokyo", "kanazawa", "shinkansen", "fuji", "jnto", "kissaten"],
+  ["ai", "openai", "agent", "agents", "llm", "nvidia", "gpu", "hardware", "spatial", "calm"],
+  ["space", "spacex", "starship", "nasa", "artemis", "lunar", "orbital", "rocket"]
+];
+
+export function computeQueryRelevance(
+  query: string,
+  title: string,
+  summary: string,
+  tags: string[] = []
+): number {
   const stopWords = new Set([
     "the",
     "and",
@@ -109,7 +123,25 @@ export function computeQueryRelevance(query: string, title: string, summary: str
     "why",
     "who",
     "where",
-    "when"
+    "when",
+    "only",
+    "just",
+    "photologs",
+    "photolog",
+    "photos",
+    "vlogs",
+    "vlog",
+    "videos",
+    "video",
+    "blogs",
+    "blog",
+    "articles",
+    "article",
+    "hi",
+    "hey",
+    "hello",
+    "please",
+    "new"
   ]);
   const tokens = query
     .toLowerCase()
@@ -120,14 +152,22 @@ export function computeQueryRelevance(query: string, title: string, summary: str
   if (tokens.length === 0) return 0.75;
 
   const haystackTitle = title.toLowerCase();
-  const haystackBody = `${title} ${summary}`.toLowerCase();
+  const tagText = tags.join(" ").toLowerCase();
+  const haystackBody = `${title} ${summary} ${tagText}`.toLowerCase();
 
   let matchedInTitle = 0;
   let matchedInBody = 0;
 
   for (const tk of tokens) {
-    if (haystackTitle.includes(tk)) matchedInTitle += 1;
-    if (haystackBody.includes(tk)) matchedInBody += 1;
+    const synonymGroup = TOPIC_SYNONYM_GROUPS.find((grp) => grp.includes(tk));
+    const termsToCheck = synonymGroup ? [tk, ...synonymGroup] : [tk];
+
+    if (termsToCheck.some((term) => haystackTitle.includes(term))) {
+      matchedInTitle += 1;
+    }
+    if (termsToCheck.some((term) => haystackBody.includes(term))) {
+      matchedInBody += 1;
+    }
   }
 
   if (matchedInBody === 0) return 0;
@@ -221,7 +261,7 @@ export function runVerificationPipeline(params: {
       continue;
     }
 
-    const relevance = computeQueryRelevance(query, cleanTitle, cleanSummary);
+    const relevance = computeQueryRelevance(query, cleanTitle, cleanSummary, cand.tags || []);
     if (requireQueryMatch && relevance === 0) {
       continue;
     }
@@ -306,6 +346,8 @@ export function runVerificationPipeline(params: {
       ? "primary_official"
       : "single_source_verified";
 
+    const resolvedDataType = cand.dataType || (isPrimary ? ("press_release" as const) : ("article" as const));
+
     stageFiveResults.push({
       id: `res-${matchedSource.id}-${Date.now()}-${idx}`,
       query,
@@ -334,9 +376,9 @@ export function runVerificationPipeline(params: {
       author: cand.author ? sanitizeUntrustedText(cand.author) : matchedSource.publisherName,
       tags: cand.tags && cand.tags.length > 0 ? cand.tags : [`#${effectiveCategory}`, `#Tier${matchedSource.trustTier}`],
       citations: [citation],
-      deduplication_key: computeNormalizedDedupeKey(cleanTitle),
+      deduplication_key: `${resolvedDataType}:${computeNormalizedDedupeKey(cleanTitle)}`,
       provider: cand.providerName,
-      data_type: cand.dataType || (isPrimary ? "official" as any : "article"),
+      data_type: resolvedDataType,
       thumbnail_url: cand.thumbnailUrl,
       media_duration: cand.mediaDuration,
       expires_at: expiresAtIso
@@ -346,14 +388,15 @@ export function runVerificationPipeline(params: {
   // ==========================================================================
   // STAGE 6: DEDUPLICATION & WIRE-SYNDICATION vs INDEPENDENT CORROBORATION
   // ==========================================================================
-  const dedupedByUrl = new Map<string, StandardizedSearchResult>();
+  const dedupedByUrlAndType = new Map<string, StandardizedSearchResult>();
   for (const item of stageFiveResults) {
-    if (!dedupedByUrl.has(item.canonical_url)) {
-      dedupedByUrl.set(item.canonical_url, item);
+    const urlTypeKey = `${item.data_type}:${item.canonical_url}`;
+    if (!dedupedByUrlAndType.has(urlTypeKey)) {
+      dedupedByUrlAndType.set(urlTypeKey, item);
     }
   }
 
-  const uniqueResults = Array.from(dedupedByUrl.values());
+  const uniqueResults = Array.from(dedupedByUrlAndType.values());
 
   // Group items sharing significant entity/topic overlap to check corroboration
   for (let i = 0; i < uniqueResults.length; i++) {
@@ -366,6 +409,9 @@ export function runVerificationPipeline(params: {
     for (let j = 0; j < uniqueResults.length; j++) {
       if (i === j) continue;
       const itemB = uniqueResults[j];
+      if (itemA.data_type !== itemB.data_type && (itemA.data_type === "photo_report" || itemB.data_type === "photo_report")) {
+        continue;
+      }
 
       // Check if itemA and itemB cover the same specific story/event
       const overlap = computeStoryOverlap(itemA.title, itemB.title);
@@ -403,17 +449,28 @@ export function runVerificationPipeline(params: {
   }
 
   // ==========================================================================
-  // SECTION 9: SOURCE-AWARE RANKING ENGINE
-  // Priority: 1. Trust Tier (Tier 1 > Tier 2 > Tier 3)
-  //           2. Query Relevance
-  //           3. Corroboration & Primary Authority
-  //           4. Publication Recency
+  // SECTION 8 & 9: BALANCED FEED-RANKING ENGINE
+  // Combines relevance, source credibility, freshness, media availability,
+  // corroboration importance, and publisher diversity.
   // ==========================================================================
-  const rankedResults = Array.from(seenDedupeKeys.values()).sort((a, b) => {
+  const initialSorted = Array.from(seenDedupeKeys.values()).sort((a, b) => {
     const scoreA = computeRankingScore(a, query, nowMs);
     const scoreB = computeRankingScore(b, query, nowMs);
     return scoreB - scoreA;
   });
+
+  // Apply publisher diversity adjustment so a single publisher does not monopolize the top feed
+  const publisherCounts = new Map<string, number>();
+  const rankedResults = initialSorted
+    .map((item) => {
+      const seenCount = publisherCounts.get(item.source_domain) || 0;
+      publisherCounts.set(item.source_domain, seenCount + 1);
+      const diversityPenalty = seenCount * 4;
+      const finalScore = computeRankingScore(item, query, nowMs) - diversityPenalty;
+      return { item, finalScore };
+    })
+    .sort((a, b) => b.finalScore - a.finalScore)
+    .map((entry) => entry.item);
 
   // ==========================================================================
   // STAGE 8: FINAL OUTPUT SCHEMA VALIDATION
@@ -460,11 +517,11 @@ function computeRankingScore(
   query: string,
   nowMs: number
 ): number {
-  // Tier 1 = +40, Tier 2 = +28, Tier 3 = +15
-  const tierScore = item.source_tier === 1 ? 40 : item.source_tier === 2 ? 28 : 15;
-  const relevanceScore = computeQueryRelevance(query, item.title, item.summary) * 30;
+  const tierScore = item.source_tier === 1 ? 30 : item.source_tier === 2 ? 24 : 18;
+  const relevanceScore = computeQueryRelevance(query, item.title, item.summary, item.tags) * 38;
   const corroborationScore = Math.min(12, (item.corroboration_count - 1) * 6);
-  const primaryBonus = item.verification_status === "primary_official" ? 8 : 0;
+  const primaryBonus = item.verification_status === "primary_official" ? 6 : 0;
+  const mediaQualityBonus = item.thumbnail_url ? 5 : 0;
 
   let recencyScore = 5;
   if (item.published_at) {
@@ -476,7 +533,15 @@ function computeRankingScore(
 
   const wirePenalty = item.is_syndicated_wire ? -4 : 0;
 
-  return tierScore + relevanceScore + corroborationScore + primaryBonus + recencyScore + wirePenalty;
+  return (
+    tierScore +
+    relevanceScore +
+    corroborationScore +
+    primaryBonus +
+    mediaQualityBonus +
+    recencyScore +
+    wirePenalty
+  );
 }
 
 export function validateFinalResultSchema(item: StandardizedSearchResult): boolean {

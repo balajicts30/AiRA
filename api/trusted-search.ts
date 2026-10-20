@@ -25,6 +25,12 @@ export default async function handler(req: any, res: any) {
         ? Boolean(req.body?.bypassCache)
         : new URL(req.url, "http://localhost").searchParams.get("bypassCache") === "true";
 
+    const searchUrl = new URL(req.url, "http://localhost");
+    const pageRaw =
+      req.method === "POST" ? req.body?.page : searchUrl.searchParams.get("page");
+    const pageSizeRaw =
+      req.method === "POST" ? req.body?.pageSize : searchUrl.searchParams.get("pageSize");
+
     if (!query || typeof query !== "string" || !query.trim()) {
       res.statusCode = 400;
       res.setHeader("Content-Type", "application/json");
@@ -32,8 +38,8 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    // Use server-side environment variable if configured; never expose secret in response
     const serverGeminiKey =
+      (req.method === "POST" && req.body?.geminiApiKey) ||
       (typeof process !== "undefined" &&
         (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY)) ||
       undefined;
@@ -42,7 +48,9 @@ export default async function handler(req: any, res: any) {
       query: query.trim(),
       categoryOverride: categoryOverride || undefined,
       bypassCache,
-      geminiApiKey: serverGeminiKey
+      geminiApiKey: serverGeminiKey,
+      page: pageRaw ? Math.max(1, Number(pageRaw)) : 1,
+      pageSize: pageSizeRaw ? Math.max(4, Number(pageSizeRaw)) : 12
     });
 
     res.statusCode = 200;

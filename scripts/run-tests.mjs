@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { createServer } from "vite";
 
 async function main() {
@@ -8,8 +10,9 @@ async function main() {
   });
 
   try {
+    const appSource = readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf-8");
     const mod = await server.ssrLoadModule("/src/engine/__tests__/trustedEngine.test.ts");
-    const report = await mod.runAllEngineTests();
+    const report = await mod.runAllEngineTests({ appSource });
 
     console.log("================================================================================");
     console.log("  AiRA TRUSTED LIVE DATA SOURCING & VERIFICATION ENGINE — TEST SUITE REPORT");
