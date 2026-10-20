@@ -17,33 +17,59 @@ export interface EventResolutionResult {
   diagnostic: SearchDiagnostics["eventResolution"];
 }
 
+const ACTIVE_SPORTS_DOMAINS = new Set([
+  "cricket",
+  "formula1",
+  "soccer",
+  "basketball",
+  "football",
+  "tennis"
+]);
+
 /**
  * Checks whether a live scoreboard event returned from an external provider (e.g. ESPN)
- * actually matches the teams/entities in the user's resolved query interpretation.
+ * actually matches the sport domain, competition, and teams/entities in the user's resolved query.
  */
 export function doesEventMatchQueryEntities(
   event: StructuredSportsEvent,
   interp: QueryInterpretation
 ): boolean {
-  // Sport domain must match
-  if (
-    interp.sportOrIndustry === "cricket" &&
-    event.sport !== "cricket"
-  ) {
+  // 1. Non-sports queries can NEVER match a sports event
+  if (!ACTIVE_SPORTS_DOMAINS.has(interp.sportOrIndustry)) {
     return false;
   }
+
+  // 2. Sport category must match exactly
+  if (event.sport !== interp.sportOrIndustry) {
+    return false;
+  }
+
+  // 3. Validate mandatory event integrity fields (Section 4)
   if (
-    interp.sportOrIndustry === "formula1" &&
-    event.sport !== "formula1"
+    !event.id ||
+    !event.competition ||
+    !event.providerName ||
+    !Array.isArray(event.participants) ||
+    event.participants.length < 2 ||
+    event.isStale
   ) {
     return false;
   }
 
-  // If specific teams/competitors were requested (e.g., South Africa vs Australia),
+  const eventHaystack = [
+    event.competition,
+    event.eventTitle || "",
+    event.sport,
+    ...event.participants.map((p) => `${p.name} ${p.abbreviation} ${p.teamName || ""}`)
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  // 4. If specific teams/competitors were requested (e.g., South Africa vs Australia),
   // the event MUST include those teams.
-  if (interp.teamsOrCompetitors.length >= 2 && interp.sportOrIndustry === "cricket") {
+  if (interp.teamsOrCompetitors.length >= 2) {
     const participantText = event.participants
-      .map((p) => `${p.name} ${p.abbreviation}`.toLowerCase())
+      .map((p) => `${p.name} ${p.abbreviation} ${p.teamName || ""}`.toLowerCase())
       .join(" ");
 
     return interp.teamsOrCompetitors.every((team) =>
@@ -51,26 +77,39 @@ export function doesEventMatchQueryEntities(
     );
   }
 
-  if (interp.teamsOrCompetitors.length === 1 && interp.sportOrIndustry === "cricket") {
+  if (interp.teamsOrCompetitors.length === 1) {
     const targetTeam = interp.teamsOrCompetitors[0].toLowerCase();
-    const participantText = event.participants
-      .map((p) => `${p.name} ${p.abbreviation}`.toLowerCase())
-      .join(" ");
-    return participantText.includes(targetTeam);
+    return eventHaystack.includes(targetTeam);
   }
 
-  return true;
+  // 5. If no specific team was extracted, verify competition or sport keyword match
+  if (interp.competitionOrEvent) {
+    const compWords = interp.competitionOrEvent
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
+    if (compWords.some((w) => eventHaystack.includes(w))) {
+      return true;
+    }
+  }
+
+  const subjectWords = interp.primarySubject
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length > 2);
+  return subjectWords.some((w) => eventHaystack.includes(w));
 }
 
 /**
  * Resolves structured sports events and builds a self-explanatory, contextual
  * SocialMatchScorecard only when relevant to the user's query intent.
  *
- * Strictly enforces Phase 4 & Phase 5 rules:
+ * Strictly enforces Phase 4 & Phase 5 & Section 4 rules:
  * 1. Broad "Ferrari" query does NOT show an isolated driver timing fragment.
- * 2. "SA vs AUS cricket" resolves South Africa vs Australia (never India vs Australia).
- * 3. Never assumes a match is live merely because the query contains "vs".
- * 4. Every scorecard includes competition, teams, venue, location, date/timezone,
+ * 2. Non-sports queries ("tesla flying car", "Apple", "OpenAI") NEVER resolve a sports event.
+ * 3. "SA vs AUS cricket" resolves South Africa vs Australia (never India vs Australia).
+ * 4. Never assumes a match is live merely because the query contains "vs".
+ * 5. Every scorecard includes competition, teams, venue, location, date/timezone,
  *    current status, innings/overs/session details, and provider attribution.
  */
 export function resolveContextualSportsEvents(params: {
@@ -97,6 +136,25 @@ export function resolveContextualSportsEvents(params: {
         providerName: null,
         providerTimestamp: null,
         reason: `Broad multi-facet query "${interp.originalQuery}" spans brand, road cars, and motorsport; suppressed isolated driver timing card.`
+      }
+    };
+  }
+
+  // ==========================================================================
+  // CASE 1B: Non-Sports Query Gate (e.g., "tesla flying car", "OpenAI", "Japan")
+  // ==========================================================================
+  if (!ACTIVE_SPORTS_DOMAINS.has(interp.sportOrIndustry)) {
+    return {
+      events: [],
+      scorecard: null,
+      diagnostic: {
+        outcome: "not_applicable",
+        eventId: null,
+        eventTitle: null,
+        eventStatus: null,
+        providerName: null,
+        providerTimestamp: null,
+        reason: `Query "${interp.originalQuery}" resolved to non-sports domain "${interp.sportOrIndustry}"; sports live-score resolution skipped.`
       }
     };
   }

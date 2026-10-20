@@ -358,7 +358,17 @@ export interface ConversationReferenceResolution {
     | "general_followup";
 }
 
+export type RelevanceClassification =
+  | "direct_match"
+  | "strongly_related"
+  | "tangential"
+  | "unrelated"
+  | "unverifiable";
+
 export interface QueryInterpretation {
+  queryId?: string;
+  topicId?: string;
+  searchSessionId?: string;
   originalQuery: string;
   normalizedQuery: string;
   primarySubject: string;
@@ -385,7 +395,7 @@ export interface QueryInterpretation {
 }
 
 // ============================================================================
-// PHASE 6: 12-FACTOR RELEVANCE SCORING ENGINE SCHEMAS
+// PHASE 6: 12-FACTOR RELEVANCE SCORING ENGINE & 5-TIER ACTIVE-TOPIC GATE
 // ============================================================================
 
 export interface RelevanceScoreBreakdown {
@@ -404,6 +414,10 @@ export interface RelevanceScoreBreakdown {
   mismatchPenalty: number; // Hard penalty when item belongs to wrong matchup/entity
   totalScore: number; // Normalized 0-100
   isRelevant: boolean;
+  relevanceClass?: RelevanceClassification;
+  relevanceEvidence?: string;
+  extractedEntities?: string[];
+  primaryTopic?: string;
   explanation: string;
 }
 
@@ -605,6 +619,9 @@ export interface FeedQualityMetrics {
 }
 
 export interface SocialDiscoveryFeed {
+  searchSessionId?: string;
+  queryId?: string;
+  topicId?: string;
   topicTitle: string;
   searchTopic: string;
   assistantSummary: string;
@@ -641,6 +658,9 @@ export interface SocialDiscoveryFeed {
 // ============================================================================
 
 export interface SearchDiagnostics {
+  searchSessionId?: string;
+  queryId?: string;
+  topicId?: string;
   originalQuery: string;
   resolvedQuery: string;
   resolvedIntent: DetailedUserIntent;
@@ -663,6 +683,7 @@ export interface SearchDiagnostics {
     errorDetail?: string;
   }[];
   scoringDiagnostics: {
+    candidateId?: string;
     title: string;
     sourceName: string;
     dataType: string;
@@ -671,6 +692,8 @@ export interface SearchDiagnostics {
     relevanceScore: number;
     freshnessScore: number;
     finalRankingScore: number;
+    relevanceClass?: RelevanceClassification;
+    relevanceEvidence?: string;
   }[];
   eventResolution: {
     outcome:
@@ -689,6 +712,9 @@ export interface SearchDiagnostics {
   finalFeedComposition: {
     activeTopic: string;
     conversationId: string;
+    searchSessionId?: string;
+    queryId?: string;
+    topicId?: string;
     isFollowUp: boolean;
     isContextSwitch: boolean;
     articlesCount: number;
@@ -696,6 +722,7 @@ export interface SearchDiagnostics {
     vlogsCount: number;
     hasScorecard: boolean;
     developingStoriesCount: number;
+    feedValidationStrippedCount?: number;
   };
 }
 

@@ -294,6 +294,7 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const latestRequestIdRef = useRef<number>(0);
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -332,7 +333,10 @@ export default function App() {
     overrideTimeframe?: "all" | "day" | "week" | "month" | "year"
   ) => {
     const queryText = (customPrompt !== null ? customPrompt : inputQuery).trim();
-    if (!queryText || isGenerating) return;
+    if (!queryText) return;
+
+    const requestId = latestRequestIdRef.current + 1;
+    latestRequestIdRef.current = requestId;
 
     setInputQuery("");
     setIsVoiceSimulated(false);
@@ -342,7 +346,7 @@ export default function App() {
     setVisibleCountMultiplier(1);
     setHasNewLiveUpdateBanner(false);
 
-    const turnId = `turn-${Date.now()}`;
+    const turnId = `turn-${Date.now()}-${requestId}`;
     const tf = overrideTimeframe || activeTimeframe;
 
     try {
@@ -365,6 +369,11 @@ export default function App() {
         pageSize: 14
       });
 
+      // Section 5: Ignore late responses from an earlier search so they cannot overwrite a newer search
+      if (latestRequestIdRef.current !== requestId) {
+        return;
+      }
+
       const newTurn = {
         id: turnId,
         userQuery: queryText,
@@ -378,7 +387,9 @@ export default function App() {
       setActiveSourceFilter("all");
       setKeywordFilter("");
     } finally {
-      setIsGenerating(false);
+      if (latestRequestIdRef.current === requestId) {
+        setIsGenerating(false);
+      }
     }
   };
 
@@ -389,6 +400,8 @@ export default function App() {
     silentBackground = false
   ) => {
     if (!currentTurn || isGenerating) return;
+    const requestId = latestRequestIdRef.current;
+    const targetTurnId = currentTurn.id;
     const tf = newTimeframe || activeTimeframe;
     if (newTimeframe) setActiveTimeframe(newTimeframe);
     if (!silentBackground) setIsGenerating(true);
@@ -407,15 +420,21 @@ export default function App() {
         pageSize: 14
       });
 
+      if (latestRequestIdRef.current !== requestId) {
+        return;
+      }
+
       setTurns((prev) =>
-        prev.map((t) => (t.id === currentTurn.id ? { ...t, feedData: refreshedData } : t))
+        prev.map((t) => (t.id === targetTurnId ? { ...t, feedData: refreshedData } : t))
       );
       setHasNewLiveUpdateBanner(false);
       if (!silentBackground) {
         triggerToast("Refreshed live feed & updated active scorecards");
       }
     } finally {
-      if (!silentBackground) setIsGenerating(false);
+      if (!silentBackground && latestRequestIdRef.current === requestId) {
+        setIsGenerating(false);
+      }
     }
   };
 

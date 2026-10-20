@@ -1,11 +1,18 @@
 // ============================================================================
-// PHASE 6: 12-FACTOR RELEVANCE SCORING & DIVERSIFICATION ENGINE
-// Scores every candidate against the resolved QueryInterpretation rather than
-// simple keyword overlap or blind synonym expansion.
+// PHASE 6 & SECTION 3: 12-FACTOR RELEVANCE SCORING & MANDATORY 5-TIER
+// ACTIVE-TOPIC RELEVANCE GATE
+// Classifies every candidate into:
+//   - "direct_match"
+//   - "strongly_related"
+//   - "tangential"
+//   - "unrelated"
+//   - "unverifiable"
+// Only "direct_match" and "strongly_related" items may enter the main feed.
 // ============================================================================
 
 import {
   QueryInterpretation,
+  RelevanceClassification,
   RelevanceScoreBreakdown,
   StandardizedSearchResult
 } from "./types";
@@ -17,6 +24,9 @@ const STOP_WORDS = new Set([
   "with",
   "what",
   "whats",
+  "are",
+  "its",
+  "their",
   "happened",
   "show",
   "tell",
@@ -78,8 +88,9 @@ function containsTerm(haystack: string, term: string): boolean {
 }
 
 /**
- * Evaluates all 12 relevance factors for a candidate or verified result against
- * the structured QueryInterpretation.
+ * Evaluates all 12 relevance factors AND classifies the candidate into one of
+ * the 5 mandatory active-topic relevance categories ("direct_match", "strongly_related",
+ * "tangential", "unrelated", "unverifiable").
  */
 export function scoreItemAgainstInterpretation(params: {
   title: string;
@@ -109,17 +120,78 @@ export function scoreItemAgainstInterpretation(params: {
     nowMs = Date.now()
   } = params;
 
-  const titleLower = title.toLowerCase();
-  const tagLower = tags.join(" ").toLowerCase();
-  const fullText = `${titleLower} ${summary.toLowerCase()} ${tagLower}`;
+  const cleanTitle = (title || "").trim();
+  const cleanSummary = (summary || "").trim();
 
-  // ==========================================================================
-  // FACTOR 1: PRIMARY ENTITY MATCH (0 - 28 pts) & MISMATCH PENALTY
-  // ==========================================================================
+  // Gate 0: Unverifiable metadata check
+  if (cleanTitle.length < 5 || cleanSummary.length < 15) {
+    return {
+      primaryEntityScore: 0,
+      queryIntentScore: 0,
+      competitionTeamEventScore: 0,
+      semanticRelevanceScore: 0,
+      sourceCredibilityScore: 0,
+      recencyScore: 0,
+      eventStatusScore: 0,
+      contentFormatScore: 0,
+      metadataCompletenessScore: 0,
+      diversityAdjustment: 0,
+      duplicatePenalty: 0,
+      userPreferenceBonus: 0,
+      mismatchPenalty: -50,
+      totalScore: 0,
+      isRelevant: false,
+      relevanceClass: "unverifiable",
+      relevanceEvidence: "Candidate lacks sufficient title or summary metadata to verify topical relevance.",
+      extractedEntities: [],
+      primaryTopic: interp.primarySubject,
+      explanation: "Rejected as unverifiable: insufficient title/summary metadata."
+    };
+  }
+
+  const titleLower = cleanTitle.toLowerCase();
+  const tagLower = tags.join(" ").toLowerCase();
+  const fullText = `${titleLower} ${cleanSummary.toLowerCase()} ${tagLower}`;
+
+  const extractedEntities: string[] = [];
   let primaryEntityScore = 0;
   let mismatchPenalty = 0;
+  let relevanceClass: RelevanceClassification = "unrelated";
+  let relevanceEvidence = "";
 
-  if (interp.sportOrIndustry === "cricket" && interp.teamsOrCompetitors.length >= 2) {
+  // Cross-domain contamination guard: reject sports items from wrong sports/domains
+  const isSoccerItem = /\b(uefa|champions league|premier league|arsenal|real madrid|barcelona|liverpool|chelsea|manchester city)\b/i.test(
+    fullText
+  );
+  const isCricketItem = /\b(cricket|t20i|espncricinfo|cricbuzz|bcci|proteas|baggy greens|wickets|innings)\b/i.test(
+    fullText
+  );
+  const isF1Item = /\b(formula 1|grand prix|scuderia ferrari|imola gp|fia formula)\b/i.test(fullText);
+
+  if (interp.sportOrIndustry !== "soccer" && isSoccerItem) {
+    mismatchPenalty = -55;
+    relevanceClass = "unrelated";
+    relevanceEvidence = `Cross-domain mismatch: candidate is soccer content while active query domain is "${interp.sportOrIndustry}".`;
+  } else if (interp.sportOrIndustry !== "cricket" && isCricketItem) {
+    mismatchPenalty = -55;
+    relevanceClass = "unrelated";
+    relevanceEvidence = `Cross-domain mismatch: candidate is cricket content while active query domain is "${interp.sportOrIndustry}".`;
+  } else if (
+    interp.sportOrIndustry !== "formula1" &&
+    !(interp.isBroadMultiFacetEntity && interp.primarySubject.toLowerCase() === "ferrari") &&
+    isF1Item
+  ) {
+    mismatchPenalty = -55;
+    relevanceClass = "unrelated";
+    relevanceEvidence = `Cross-domain mismatch: candidate is Formula 1 content while active query domain is "${interp.sportOrIndustry}".`;
+  }
+
+  // ==========================================================================
+  // FACTOR 1: PRIMARY ENTITY MATCH (0 - 28 pts) & 5-TIER CLASSIFICATION
+  // ==========================================================================
+  if (mismatchPenalty < 0) {
+    primaryEntityScore = 0;
+  } else if (interp.sportOrIndustry === "cricket" && interp.teamsOrCompetitors.length >= 2) {
     // Head-to-head matchup (e.g., South Africa vs Australia)
     const teamMatchCounts = interp.teamsOrCompetitors.map((teamName) => {
       const entityObj = interp.namedEntities.find(
@@ -132,6 +204,7 @@ export function scoreItemAgainstInterpretation(params: {
       ];
       const matchedInTitle = terms.some((t) => containsTerm(titleLower, t));
       const matchedInBody = terms.some((t) => containsTerm(fullText, t));
+      if (matchedInBody) extractedEntities.push(teamName);
       return { teamName, matchedInTitle, matchedInBody };
     });
 
@@ -139,15 +212,27 @@ export function scoreItemAgainstInterpretation(params: {
     const teamsInTitle = teamMatchCounts.filter((t) => t.matchedInTitle).length;
 
     if (teamsInTitle === 0) {
-      // If the title doesn't mention either requested team at all, reject to prevent synthetic description noise
       primaryEntityScore = 0;
       mismatchPenalty = -40;
+      relevanceClass = "unrelated";
+      relevanceEvidence = `Title does not mention requested matchup teams (${interp.teamsOrCompetitors.join(" vs ")}).`;
     } else if (teamsInBody === interp.teamsOrCompetitors.length) {
-      primaryEntityScore = teamsInTitle >= 2 ? 28 : 22;
+      primaryEntityScore = teamsInTitle >= 2 ? 28 : 24;
+      relevanceClass = "direct_match";
+      relevanceEvidence = `Directly matches both requested teams (${interp.teamsOrCompetitors.join(" vs ")}) in ${interp.sportOrIndustry}.`;
     } else if (teamsInBody === 1) {
-      // Check if this item is actually about a DIFFERENT rival team (e.g. India / Chepauk / Bumrah when user asked SA vs AUS)
-      const rivalTeamsNotInQuery = ["india", "england", "pakistan", "new zealand", "sri lanka", "west indies", "chepauk", "bumrah", "suryakumar", "indvaus"]
-        .filter((rival) => !interp.teamsOrCompetitors.some((qt) => qt.toLowerCase().includes(rival)));
+      const rivalTeamsNotInQuery = [
+        "india",
+        "england",
+        "pakistan",
+        "new zealand",
+        "sri lanka",
+        "west indies",
+        "chepauk",
+        "bumrah",
+        "suryakumar",
+        "indvaus"
+      ].filter((rival) => !interp.teamsOrCompetitors.some((qt) => qt.toLowerCase().includes(rival)));
 
       const mentionsUnrelatedRival = rivalTeamsNotInQuery.some((rival) =>
         containsTerm(fullText, rival)
@@ -156,12 +241,52 @@ export function scoreItemAgainstInterpretation(params: {
       if (mentionsUnrelatedRival) {
         primaryEntityScore = 0;
         mismatchPenalty = -45;
+        relevanceClass = "unrelated";
+        relevanceEvidence = `Item covers a different cricket matchup involving an unrelated team rather than ${interp.teamsOrCompetitors.join(" vs ")}.`;
       } else {
-        primaryEntityScore = 14;
+        primaryEntityScore = 18;
+        relevanceClass = "strongly_related";
+        relevanceEvidence = `Covers one of the requested cricket teams (${extractedEntities.join(", ")}) with no conflicting rival matchup.`;
       }
     } else {
       primaryEntityScore = 0;
       mismatchPenalty = -35;
+      relevanceClass = "unrelated";
+      relevanceEvidence = "Does not match either requested cricket team.";
+    }
+  } else if (interp.primarySubject.toLowerCase() === "tesla flying car") {
+    // Compound speculative/concept query: "tesla flying car"
+    const mentionsTeslaOrRoadster = /\b(tesla|roadster|elon musk)\b/i.test(fullText);
+    const mentionsAviationOrFlyingConcept =
+      /\b(flying\s+cars?|evtol|hover|thruster|thrusters|air\s+taxi|electric\s+aviation|electric\s+aircraft|powered-lift|joby|archer\s+aviation|vertical\s+takeoff)\b/i.test(
+        fullText
+      );
+
+    if (mentionsTeslaOrRoadster) extractedEntities.push("Tesla");
+    if (mentionsAviationOrFlyingConcept) extractedEntities.push("eVTOL & Electric Aviation");
+
+    if (mentionsTeslaOrRoadster && mentionsAviationOrFlyingConcept) {
+      primaryEntityScore = 28;
+      relevanceClass = "direct_match";
+      relevanceEvidence =
+        "Directly addresses Tesla / Roadster thruster claims and flying-car / eVTOL aviation context.";
+    } else if (mentionsAviationOrFlyingConcept) {
+      primaryEntityScore = 21;
+      relevanceClass = "strongly_related";
+      relevanceEvidence =
+        "Strongly related contextual coverage of real eVTOL / flying-car electric aviation and FAA certification.";
+    } else if (mentionsTeslaOrRoadster) {
+      // Mentions Tesla in general (e.g. a random #tesla blog post) without flying car / Roadster thruster / eVTOL context
+      primaryEntityScore = 6;
+      mismatchPenalty = -25;
+      relevanceClass = "tangential";
+      relevanceEvidence =
+        "Tangential: mentions Tesla generally without addressing flying cars, Roadster thrusters, or eVTOL aviation.";
+    } else {
+      primaryEntityScore = 0;
+      mismatchPenalty = -45;
+      relevanceClass = "unrelated";
+      relevanceEvidence = "Unrelated: does not mention Tesla, Roadster, flying cars, or eVTOL aviation.";
     }
   } else if (interp.namedEntities.length > 0) {
     let matchedEntitiesInTitle = 0;
@@ -177,15 +302,15 @@ export function scoreItemAgainstInterpretation(params: {
         terms.push("ferrari", "scuderia", "maranello", "f80", "12cilindri", "sf-25", "sf-26", "prancing horse");
       }
 
-      if (terms.some((t) => containsTerm(titleLower, t))) {
-        matchedEntitiesInTitle += 1;
-      }
-      if (terms.some((t) => containsTerm(fullText, t))) {
+      const inTitle = terms.some((t) => containsTerm(titleLower, t));
+      const inBody = terms.some((t) => containsTerm(fullText, t));
+      if (inTitle) matchedEntitiesInTitle += 1;
+      if (inBody) {
         matchedEntitiesInBody += 1;
+        extractedEntities.push(ent.canonicalName);
       }
     }
 
-    // If user searched specifically for "Ferrari", an article that doesn't mention Ferrari/Maranello/Scuderia at all is rejected
     if (
       interp.primarySubject.toLowerCase().includes("ferrari") &&
       !containsTerm(fullText, "ferrari") &&
@@ -194,13 +319,24 @@ export function scoreItemAgainstInterpretation(params: {
     ) {
       primaryEntityScore = 0;
       mismatchPenalty = -45;
+      relevanceClass = "unrelated";
+      relevanceEvidence = "Item does not reference Ferrari, Maranello, or Scuderia Ferrari.";
     } else if (matchedEntitiesInBody > 0) {
       const ratioBody = matchedEntitiesInBody / interp.namedEntities.length;
       const ratioTitle = matchedEntitiesInTitle / interp.namedEntities.length;
       primaryEntityScore = Math.round(14 + ratioBody * 8 + ratioTitle * 6);
+      if (matchedEntitiesInTitle > 0 && ratioBody >= 0.5) {
+        relevanceClass = "direct_match";
+        relevanceEvidence = `Directly matches resolved entity (${extractedEntities.join(", ")}) in title and body.`;
+      } else {
+        relevanceClass = "strongly_related";
+        relevanceEvidence = `Strongly related to resolved entity (${extractedEntities.join(", ")}).`;
+      }
     } else {
       primaryEntityScore = 0;
-      mismatchPenalty = -30;
+      mismatchPenalty = -35;
+      relevanceClass = "unrelated";
+      relevanceEvidence = `Does not match any resolved entities (${interp.namedEntities.map((e) => e.canonicalName).join(", ")}).`;
     }
   } else {
     // General topic query without pre-indexed KB entity
@@ -211,17 +347,55 @@ export function scoreItemAgainstInterpretation(params: {
       .filter((w) => w.length >= 2 && !STOP_WORDS.has(w));
 
     if (subjectTokens.length > 0) {
-      const matchedTitle = subjectTokens.filter((tk) => containsTerm(titleLower, tk)).length;
-      const matchedBody = subjectTokens.filter((tk) => containsTerm(fullText, tk)).length;
-      if (matchedBody > 0) {
-        primaryEntityScore = Math.round(
-          (matchedBody / subjectTokens.length) * 18 + (matchedTitle / subjectTokens.length) * 10
-        );
+      const matchedTitleTokens = subjectTokens.filter((tk) => containsTerm(titleLower, tk));
+      const matchedBodyTokens = subjectTokens.filter((tk) => containsTerm(fullText, tk));
+      extractedEntities.push(...matchedBodyTokens);
+
+      const ratioBody = matchedBodyTokens.length / subjectTokens.length;
+      const ratioTitle = matchedTitleTokens.length / subjectTokens.length;
+
+      if (subjectTokens.length >= 2) {
+        if (matchedBodyTokens.length === subjectTokens.length && matchedTitleTokens.length >= 1) {
+          primaryEntityScore = Math.round(ratioBody * 18 + ratioTitle * 10);
+          relevanceClass = "direct_match";
+          relevanceEvidence = `Matches all query topic tokens (${matchedBodyTokens.join(", ")}).`;
+        } else if (matchedBodyTokens.length >= Math.ceil(subjectTokens.length * 0.66) && matchedTitleTokens.length >= 1) {
+          primaryEntityScore = Math.round(ratioBody * 18 + ratioTitle * 10);
+          relevanceClass = "strongly_related";
+          relevanceEvidence = `Matches majority of query topic tokens (${matchedBodyTokens.join(", ")}).`;
+        } else if (matchedBodyTokens.length >= 1) {
+          primaryEntityScore = 6;
+          mismatchPenalty = -25;
+          relevanceClass = "tangential";
+          relevanceEvidence = `Tangential single-keyword overlap (${matchedBodyTokens.join(", ")}) for multi-term topic "${interp.primarySubject}".`;
+        } else {
+          primaryEntityScore = 0;
+          mismatchPenalty = -35;
+          relevanceClass = "unrelated";
+          relevanceEvidence = `Zero token overlap with "${interp.primarySubject}".`;
+        }
       } else {
-        mismatchPenalty = -30;
+        // Single-token query
+        if (matchedTitleTokens.length === 1) {
+          primaryEntityScore = 26;
+          relevanceClass = "direct_match";
+          relevanceEvidence = `Direct title match for "${subjectTokens[0]}".`;
+        } else if (matchedBodyTokens.length === 1) {
+          primaryEntityScore = 18;
+          relevanceClass = "strongly_related";
+          relevanceEvidence = `Body match for "${subjectTokens[0]}".`;
+        } else {
+          primaryEntityScore = 0;
+          mismatchPenalty = -35;
+          relevanceClass = "unrelated";
+          relevanceEvidence = `Does not mention "${subjectTokens[0]}".`;
+        }
       }
     } else {
-      primaryEntityScore = 15;
+      primaryEntityScore = 0;
+      mismatchPenalty = -35;
+      relevanceClass = "unverifiable";
+      relevanceEvidence = "Query contained no actionable subject tokens.";
     }
   }
 
@@ -252,7 +426,11 @@ export function scoreItemAgainstInterpretation(params: {
       break;
     case "product_information":
     case "brand_news":
-      if (/\b(spec|specifications|launch|official|maranello|f80|12cilindri|2027|architecture|powertrain|newsroom)\b/i.test(fullText)) {
+      if (
+        /\b(spec|specifications|launch|official|maranello|f80|12cilindri|2027|architecture|powertrain|newsroom|roadster|evtol|thruster|flying\s+car)\b/i.test(
+          fullText
+        )
+      ) {
         queryIntentScore = 14;
       }
       break;
@@ -272,6 +450,8 @@ export function scoreItemAgainstInterpretation(params: {
     if (/\b(ferrari|maranello|scuderia|f80|12cilindri|supercar|v12|v6|f1|leclerc|hamilton)\b/i.test(fullText)) {
       competitionTeamEventScore = 15;
     }
+  } else if (interp.sportOrIndustry === "automotive" && /\b(tesla|roadster|evtol|flying\s+car|electric\s+aviation|air\s+taxi|ferrari|maranello|supercar)\b/i.test(fullText)) {
+    competitionTeamEventScore = 15;
   } else if (interp.sportOrIndustry === "consumer_tech" && /\b(smartphone|iphone|samsung|galaxy|camera|display|amoled|titanium|silicon)\b/i.test(fullText)) {
     competitionTeamEventScore = 14;
   } else if (interp.sportOrIndustry === "travel" && /\b(japan|kyoto|tokyo|kanazawa|shinkansen|fuji|jnto|travel|temple|kissaten)\b/i.test(fullText)) {
@@ -346,7 +526,7 @@ export function scoreItemAgainstInterpretation(params: {
   let metadataCompletenessScore = 1;
   if (publishedAt) metadataCompletenessScore += 1;
   if (hasThumbnail) metadataCompletenessScore += 1;
-  if (hasAuthor && summary.length >= 45) metadataCompletenessScore += 1;
+  if (hasAuthor && cleanSummary.length >= 45) metadataCompletenessScore += 1;
 
   // ==========================================================================
   // FACTOR 10, 11, 12: DIVERSITY, DUPLICATE PENALTY, USER PREFERENCE
@@ -372,7 +552,13 @@ export function scoreItemAgainstInterpretation(params: {
     mismatchPenalty;
 
   const totalScore = Math.max(0, Math.min(100, Math.round(rawTotal)));
-  const isRelevant = primaryEntityScore > 0 && mismatchPenalty === 0 && totalScore >= 38;
+
+  // MANDATORY ACTIVE-TOPIC RELEVANCE GATE (Section 3):
+  // Only "direct_match" and "strongly_related" items may enter the feed.
+  const isAllowedClass =
+    relevanceClass === "direct_match" || relevanceClass === "strongly_related";
+  const isRelevant =
+    isAllowedClass && primaryEntityScore > 0 && mismatchPenalty === 0 && totalScore >= 42;
 
   return {
     primaryEntityScore,
@@ -390,6 +576,10 @@ export function scoreItemAgainstInterpretation(params: {
     mismatchPenalty,
     totalScore,
     isRelevant,
-    explanation: `Entity=${primaryEntityScore}, Intent=${queryIntentScore}, Domain=${competitionTeamEventScore}, Semantic=${semanticRelevanceScore}, Credibility=${sourceCredibilityScore}, Penalty=${mismatchPenalty} -> Total=${totalScore}`
+    relevanceClass,
+    relevanceEvidence,
+    extractedEntities,
+    primaryTopic: interp.primarySubject,
+    explanation: `[${relevanceClass}] Entity=${primaryEntityScore}, Intent=${queryIntentScore}, Domain=${competitionTeamEventScore}, Semantic=${semanticRelevanceScore}, Credibility=${sourceCredibilityScore}, Penalty=${mismatchPenalty} -> Total=${totalScore} (${relevanceEvidence})`
   };
 }

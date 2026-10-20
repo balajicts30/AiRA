@@ -1192,6 +1192,28 @@ export const DEFAULT_SOURCE_REGISTRY: SourceRegistryRecord[] = [
     adminNotes: "Official primary brand and racing team source."
   },
   {
+    id: "src-tesla-official",
+    publisherName: "Tesla Official",
+    canonicalDomain: "tesla.com",
+    approvedSubdomains: ["www", "ir"],
+    category: "brands",
+    secondaryCategories: ["technology"],
+    sourceType: "official",
+    approvalStatus: "approved",
+    geographicCoverage: ["Global"],
+    supportedLanguages: ["en"],
+    permittedIngestionMethods: ["approved_discovery", "release_feed"],
+    commercialLicensingNotes: "Official Tesla vehicle lineup, Roadster specifications, and investor announcements.",
+    trustTier: 1,
+    maxContentAgeMs: 180 * 24 * 3600 * 1000,
+    maxCacheDurationMs: 15 * 60 * 1000,
+    lastSuccessfulRetrieval: null,
+    lastValidationTime: INITIAL_VALIDATED_AT,
+    integrationHealth: "healthy",
+    recentFailureCount: 0,
+    adminNotes: "Official primary electric vehicle and clean energy manufacturer source."
+  },
+  {
     id: "src-topgear",
     publisherName: "BBC Top Gear",
     canonicalDomain: "topgear.com",

@@ -1192,6 +1192,281 @@ export async function runAllEngineTests(options?: { appSource?: string }): Promi
     }
   );
 
+  // ==========================================================================
+  // SUITE 8: SECTION 10 END-TO-END RELEVANCE GATE & ISOLATION TESTS (A – F)
+  // ==========================================================================
+
+  await test(
+    "Section 10 — Test A (tesla flying car)",
+    "Query 'tesla flying car' returns verified Tesla Roadster thruster fact-check & eVTOL aviation coverage, distinguishes confirmed facts from speculation, and has ZERO UEFA/soccer/cricket scorecards",
+    async () => {
+      const orchestrator = new TrustedSearchOrchestrator(new SourceRegistryService());
+      const out = await orchestrator.executeSearch({
+        query: "tesla flying car",
+        bypassCache: true
+      });
+
+      assertCondition(Boolean(out.socialFeed), "Expected socialFeed for 'tesla flying car'");
+      const feed = out.socialFeed!;
+
+      // 1. Must NEVER call or display a UEFA Champions League, cricket, or other sports scorecard
+      assertCondition(
+        feed.matchScorecard === null,
+        "Expected matchScorecard === null for 'tesla flying car' (no UEFA Champions League or sports card)"
+      );
+      assertCondition(
+        feed.liveScoreEvents.length === 0,
+        `Expected 0 liveScoreEvents for 'tesla flying car', got ${feed.liveScoreEvents.length}`
+      );
+      assertCondition(
+        out.diagnostics.eventResolution.outcome === "not_applicable",
+        `Expected eventResolution.outcome='not_applicable', got '${out.diagnostics.eventResolution.outcome}'`
+      );
+      assertCondition(
+        !out.diagnostics.providersQueried.some((p) => p.providerId.includes("espn")),
+        "EspnLiveScoreAdapter must NOT be queried for 'tesla flying car'"
+      );
+
+      // 2. Must return verified Tesla Roadster / eVTOL aviation articles, photologs, and vlogs
+      assertCondition(
+        feed.articles.length >= 2,
+        `Expected >=2 verified Tesla/eVTOL articles for 'tesla flying car', got ${feed.articles.length}`
+      );
+      assertCondition(
+        feed.photologs.length >= 1,
+        `Expected >=1 verified photolog for 'tesla flying car', got ${feed.photologs.length}`
+      );
+      assertCondition(
+        feed.vlogs.length >= 1,
+        `Expected >=1 verified vlog for 'tesla flying car', got ${feed.vlogs.length}`
+      );
+
+      // 3. Must distinguish confirmed facts from speculation in both assistantSummary and article content
+      const summaryLower = feed.assistantSummary.toLowerCase();
+      assertCondition(
+        summaryLower.includes("has not built") &&
+          summaryLower.includes("speculation") &&
+          summaryLower.includes("roadster"),
+        `Expected assistantSummary to distinguish confirmed facts from Roadster speculation, got: "${feed.assistantSummary}"`
+      );
+
+      // 4. Every single card in the feed must pass the 5-tier Active-Topic Relevance Gate ("direct_match" or "strongly_related")
+      for (const diag of out.diagnostics.scoringDiagnostics) {
+        assertCondition(
+          diag.relevanceClass === "direct_match" || diag.relevanceClass === "strongly_related",
+          `Expected relevanceClass to be direct_match or strongly_related, got '${diag.relevanceClass}' on "${diag.title}"`
+        );
+      }
+
+      // 5. Verify no soccer/UEFA/cricket contamination anywhere in titles or snippets
+      const allFeedText = [
+        ...feed.articles.map((a) => `${a.title} ${a.snippet}`),
+        ...feed.photologs.map((p) => `${p.caption} ${p.contextualText || ""}`),
+        ...feed.vlogs.map((v) => `${v.title} ${v.highlightQuote}`)
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      assertCondition(
+        !allFeedText.includes("uefa") &&
+          !allFeedText.includes("champions league") &&
+          !allFeedText.includes("premier league") &&
+          !allFeedText.includes("centurion"),
+        "Zero soccer/UEFA/cricket contamination allowed in 'tesla flying car' feed"
+      );
+    }
+  );
+
+  await test(
+    "Section 10 — Test D (Topic-Switching Isolation Sequence)",
+    "Rapid topic switching ('tesla flying car' -> 'SA vs AUS cricket' -> 'Ferrari' -> 'tesla flying car') isolates state with zero stale result leakage",
+    async () => {
+      const orchestrator = new TrustedSearchOrchestrator(new SourceRegistryService());
+      const sessionId = "test-session-switching-d";
+      orchestrator.resetConversationState(sessionId);
+
+      // Step 1: "tesla flying car"
+      const step1 = await orchestrator.executeSearch({
+        query: "tesla flying car",
+        conversationId: sessionId,
+        bypassCache: true
+      });
+      assertCondition(
+        step1.socialFeed?.searchTopic === "Tesla Flying Car" &&
+          step1.socialFeed?.matchScorecard === null,
+        "Step 1 ('tesla flying car') must resolve to 'Tesla Flying Car' with no sports scorecard"
+      );
+
+      // Step 2: Switch to "SA vs AUS cricket"
+      const step2 = await orchestrator.executeSearch({
+        query: "SA vs AUS cricket",
+        conversationId: sessionId,
+        bypassCache: true
+      });
+      assertCondition(
+        step2.socialFeed?.searchTopic === "South Africa vs Australia Cricket" &&
+          Boolean(step2.socialFeed?.matchScorecard) &&
+          step2.socialFeed!.matchScorecard!.team1.name.includes("South Africa"),
+        "Step 2 ('SA vs AUS cricket') must switch cleanly to South Africa vs Australia cricket"
+      );
+      assertCondition(
+        step2.socialFeed!.articles.every(
+          (a) => !a.title.toLowerCase().includes("tesla") && !a.title.toLowerCase().includes("evtol")
+        ),
+        "Step 2 feed must contain zero leftover Tesla/eVTOL articles"
+      );
+
+      // Step 3: Switch to "Ferrari"
+      const step3 = await orchestrator.executeSearch({
+        query: "Ferrari",
+        conversationId: sessionId,
+        bypassCache: true
+      });
+      assertCondition(
+        step3.socialFeed?.searchTopic === "Ferrari" &&
+          step3.socialFeed?.matchScorecard === null,
+        "Step 3 ('Ferrari') must switch cleanly to Ferrari with no cricket scorecard"
+      );
+      assertCondition(
+        step3.socialFeed!.articles.every(
+          (a) =>
+            !a.title.toLowerCase().includes("south africa") &&
+            !a.title.toLowerCase().includes("centurion") &&
+            !a.title.toLowerCase().includes("tesla")
+        ),
+        "Step 3 feed must contain zero leftover cricket or Tesla articles"
+      );
+
+      // Step 4: Switch back to "tesla flying car"
+      const step4 = await orchestrator.executeSearch({
+        query: "tesla flying car",
+        conversationId: sessionId
+      });
+      assertCondition(
+        step4.socialFeed?.searchTopic === "Tesla Flying Car" &&
+          step4.socialFeed?.matchScorecard === null,
+        "Step 4 ('tesla flying car') must restore Tesla Flying Car with no scorecard"
+      );
+      assertCondition(
+        step4.socialFeed!.articles.every(
+          (a) =>
+            !a.title.toLowerCase().includes("ferrari") &&
+            !a.title.toLowerCase().includes("south africa")
+        ),
+        "Step 4 feed must contain zero leftover Ferrari or cricket articles"
+      );
+    }
+  );
+
+  await test(
+    "Section 10 — Test E (6-Step Follow-Up & Switch Sequence)",
+    "Follow-up sequence ('SA vs AUS cricket' -> score -> next match -> video highlights -> switch to 'Ferrari' -> 'What are its latest updates?')",
+    async () => {
+      const orchestrator = new TrustedSearchOrchestrator(new SourceRegistryService());
+      const sessionId = "test-session-followup-e6";
+      orchestrator.resetConversationState(sessionId);
+
+      // 1. Search "SA vs AUS cricket"
+      const t1 = await orchestrator.executeSearch({
+        query: "SA vs AUS cricket",
+        conversationId: sessionId,
+        bypassCache: true
+      });
+      assertCondition(
+        t1.conversationState?.currentTopic === "South Africa vs Australia Cricket",
+        "Step 1 must set topic to South Africa vs Australia Cricket"
+      );
+
+      // 2. Ask "What is the current score?"
+      const t2 = await orchestrator.executeSearch({
+        query: "What is the current score?",
+        conversationId: sessionId
+      });
+      assertCondition(
+        t2.queryInterpretation?.conversationReference.isFollowUp === true &&
+          t2.socialFeed?.assistantSummary.includes("194/6"),
+        "Step 2 must preserve SA vs AUS context and report 194/6 score"
+      );
+
+      // 3. Ask "When is the next match?"
+      const t3 = await orchestrator.executeSearch({
+        query: "When is the next match?",
+        conversationId: sessionId
+      });
+      assertCondition(
+        t3.queryInterpretation?.conversationReference.isFollowUp === true &&
+          t3.socialFeed?.assistantSummary.includes("Wanderers Stadium, Johannesburg"),
+        "Step 3 must preserve SA vs AUS context and report Wanderers Stadium next fixture"
+      );
+
+      // 4. Ask "Show video highlights"
+      const t4 = await orchestrator.executeSearch({
+        query: "Show video highlights",
+        conversationId: sessionId
+      });
+      assertCondition(
+        t4.queryInterpretation?.conversationReference.isFollowUp === true &&
+          (t4.socialFeed?.vlogs.length || 0) >= 1,
+        "Step 4 must preserve SA vs AUS context and return video highlights"
+      );
+
+      // 5. Switch to "Ferrari"
+      const t5 = await orchestrator.executeSearch({
+        query: "Ferrari",
+        conversationId: sessionId,
+        bypassCache: true
+      });
+      assertCondition(
+        t5.queryInterpretation?.conversationReference.isContextSwitch === true &&
+          t5.conversationState?.currentTopic === "Ferrari",
+        "Step 5 must switch active topic to Ferrari"
+      );
+
+      // 6. Ask "What are its latest updates?"
+      const t6 = await orchestrator.executeSearch({
+        query: "What are its latest updates?",
+        conversationId: sessionId
+      });
+      assertCondition(
+        t6.queryInterpretation?.conversationReference.isFollowUp === true &&
+          t6.conversationState?.currentTopic === "Ferrari",
+        `Step 6 ('What are its latest updates?') must resolve 'its' to Ferrari, got '${t6.conversationState?.currentTopic}'`
+      );
+      assertCondition(
+        (t6.socialFeed?.articles.length || 0) >= 2 &&
+          t6.socialFeed!.articles.every((a) =>
+            `${a.title} ${a.snippet}`.toLowerCase().includes("ferrari")
+          ),
+        "Step 6 feed must return latest Ferrari updates with zero cricket leakage"
+      );
+    }
+  );
+
+  await test(
+    "Section 10 — Test F (Empty or Unavailable Results)",
+    "Query with no relevant candidates returns a clean empty state with zero unrelated filler content or fabricated metadata",
+    async () => {
+      const orchestrator = new TrustedSearchOrchestrator(new SourceRegistryService());
+      const emptyOut = await orchestrator.executeSearch({
+        query: "zxqv9981 nonexistent quantum submarine xyz",
+        bypassCache: true
+      });
+
+      const feed = emptyOut.socialFeed!;
+      assertCondition(
+        feed.articles.length === 0 &&
+          feed.photologs.length === 0 &&
+          feed.vlogs.length === 0 &&
+          feed.matchScorecard === null,
+        `Expected 0 articles, 0 photologs, 0 vlogs, and null matchScorecard for nonexistent topic, got articles=${feed.articles.length}, photos=${feed.photologs.length}, vlogs=${feed.vlogs.length}`
+      );
+      assertCondition(
+        feed.assistantSummary.includes("No verified relevant coverage from approved sources matched"),
+        `Expected honest empty-state assistantSummary, got "${feed.assistantSummary}"`
+      );
+    }
+  );
+
   const passed = results.filter((r) => r.passed).length;
   const failed = results.length - passed;
 

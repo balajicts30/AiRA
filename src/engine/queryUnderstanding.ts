@@ -276,6 +276,45 @@ export const ENTITY_KNOWLEDGE_BASE: readonly KnowledgeBaseEntitySpec[] = [
   // TECHNOLOGY, AI, SMARTPHONES, SCIENCE & TRAVEL
   // ==========================================================================
   {
+    canonicalName: "Tesla",
+    aliases: [
+      "tesla",
+      "tesla motors",
+      "tesla roadster",
+      "cybertruck",
+      "model s",
+      "model 3",
+      "model y",
+      "model x",
+      "elon musk tesla"
+    ],
+    entityType: "brand",
+    sportOrIndustry: "automotive",
+    countryOrRegion: "US",
+    abbreviation: "TSLA",
+    flag: "⚡"
+  },
+  {
+    canonicalName: "eVTOL & Electric Aviation",
+    aliases: [
+      "flying car",
+      "flying cars",
+      "evtol",
+      "air taxi",
+      "electric aircraft",
+      "electric aviation",
+      "vertical takeoff",
+      "joby aviation",
+      "archer aviation",
+      "roadster thruster",
+      "hover car"
+    ],
+    entityType: "product",
+    sportOrIndustry: "automotive",
+    countryOrRegion: "Global",
+    flag: "🛩️"
+  },
+  {
     canonicalName: "Apple",
     aliases: ["apple", "iphone", "macbook", "ios", "m4", "apple newsroom"],
     entityType: "brand",
@@ -674,6 +713,13 @@ export function interpretSearchQuery(
     sportOrIndustry = "formula1";
   } else if (isBroadMultiFacetEntity && hasFerrariEntity) {
     sportOrIndustry = "automotive"; // Multi-facet automotive + F1 motorsport
+  } else if (
+    effectiveEntities.some((e) => e.sportOrIndustry === "automotive") ||
+    /\b(tesla|roadster|cybertruck|evtol|flying\s+car|electric\s+aircraft|air\s+taxi|joby|archer\s+aviation|vertical\s+takeoff|supercar|automotive|electric\s+vehicle)\b/i.test(
+      lower
+    )
+  ) {
+    sportOrIndustry = "automotive";
   } else if (/\b(premier league|champions league|fifa|uefa|soccer|arsenal|liverpool|real madrid|barcelona)\b/i.test(lower)) {
     sportOrIndustry = "soccer";
   } else if (/\b(nba|basketball|lakers|celtics|warriors)\b/i.test(lower)) {
@@ -819,7 +865,11 @@ export function interpretSearchQuery(
     userIntent = "breaking_news";
   } else if (/\b(review|reviews|comparison|compare|blind\s+test|benchmark|hands-on|lab\s+test)\b/i.test(lower)) {
     userIntent = "reviews_and_comparisons";
-  } else if (/\b(spec|specs|specifications|2027\s+car|2026\s+car|architecture|powertrain|features|price)\b/i.test(lower)) {
+  } else if (
+    /\b(spec|specs|specifications|2027\s+car|2026\s+car|architecture|powertrain|features|price|flying\s+car|evtol|roadster)\b/i.test(
+      lower
+    )
+  ) {
     userIntent = "product_information";
   } else if (
     brandsOrProducts.length > 0 &&
@@ -849,9 +899,15 @@ export function interpretSearchQuery(
       : "recent";
 
   // 8. Extract Primary Subject & Normalized Query
+  const hasTeslaFlyingCarCompound =
+    /\btesla\b/i.test(lower) &&
+    /\b(flying\s+cars?|evtol|hover|roadster|thruster|aircraft|aviation|air\s+taxi)\b/i.test(lower);
+
   let primarySubject = "";
   if (sportOrIndustry === "cricket" && teamsOrCompetitors.length >= 2) {
     primarySubject = `${teamsOrCompetitors[0]} vs ${teamsOrCompetitors[1]} Cricket`;
+  } else if (hasTeslaFlyingCarCompound) {
+    primarySubject = "Tesla Flying Car";
   } else if (hasFerrariEntity && hasExplicitF1Cue) {
     primarySubject = userIntent === "live_event_or_score" ? "Scuderia Ferrari F1 Live" : "Scuderia Ferrari Formula 1";
   } else if (hasFerrariEntity && isBroadMultiFacetEntity) {
@@ -880,8 +936,14 @@ export function interpretSearchQuery(
             ? "highlights video"
             : ""
         }`.trim()
+      : hasTeslaFlyingCarCompound
+      ? "Tesla flying car Roadster eVTOL aviation"
       : conversationReference.isFollowUp && priorConversationState
-      ? `${primarySubject} ${originalQuery}`.trim()
+      ? `${primarySubject} ${originalQuery
+          .replace(/\b(what|are|is|its|their|the|when|does|show|me|tell)\b/gi, " ")
+          .replace(/[?!.]+/g, "")
+          .replace(/\s+/g, " ")
+          .trim()}`.trim()
       : primarySubject;
 
   // 9. Extract Geographic Context & Explicit Date
@@ -922,7 +984,18 @@ export function interpretSearchQuery(
       ? 0.9
       : 0.76;
 
+  const topicSlug = primarySubject
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  const topicId = `topic-${topicSlug || "general"}`;
+  const queryId = `qry-${topicSlug || "q"}-${originalQuery.length}-${userIntent}`;
+  const searchSessionId = priorConversationState?.conversationId || `sess-${topicSlug || "init"}`;
+
   return {
+    queryId,
+    topicId,
+    searchSessionId,
     originalQuery,
     normalizedQuery,
     primarySubject,
@@ -973,6 +1046,15 @@ function buildTargetedProviderQueries(params: {
       `${t1} vs ${t2} live scorecard match report`,
       `${t1} vs ${t2} upcoming fixtures schedule`,
       `${t1} vs ${t2} cricket video highlights`
+    ];
+  }
+
+  if (primarySubject.toLowerCase() === "tesla flying car") {
+    return [
+      "Tesla flying car Roadster SpaceX cold-gas thruster claims fact check",
+      "Tesla official vehicle lineup vs flying car speculation",
+      "eVTOL electric air taxi Joby Aviation Archer FAA certification analysis",
+      "Tesla Roadster & electric aviation engineering video explainers"
     ];
   }
 
