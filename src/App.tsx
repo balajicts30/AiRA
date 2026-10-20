@@ -35,7 +35,11 @@ import {
   Radio
 } from "lucide-react";
 import { globalSearchOrchestrator } from "./engine/searchOrchestrator";
-import { SocialDiscoveryFeed, TrustedSearchEngineResponse } from "./engine/types";
+import {
+  ConversationSessionState,
+  SocialDiscoveryFeed,
+  TrustedSearchEngineResponse
+} from "./engine/types";
 
 const FALLBACK_STAGE_IMAGE =
   "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=900&auto=format&fit=crop&q=80";
@@ -43,7 +47,7 @@ const FALLBACK_STAGE_IMAGE =
 // ============================================================================
 // CLIENT-TO-BACKEND CURATED FEED FETCHER
 // Uses the backend /api/trusted-search pipeline (with isomorphic fallback)
-// while keeping source governance invisible in the background.
+// while keeping source governance and conversation state synchronized.
 // ============================================================================
 async function fetchLiveCuratedFeed(
   userQuery: string,
@@ -52,6 +56,8 @@ async function fetchLiveCuratedFeed(
     strictFilter?: boolean;
     geminiApiKey?: string;
     conversationContext?: string;
+    conversationId?: string;
+    conversationState?: ConversationSessionState | null;
     page?: number;
     pageSize?: number;
     bypassCache?: boolean;
@@ -59,6 +65,8 @@ async function fetchLiveCuratedFeed(
 ): Promise<SocialDiscoveryFeed> {
   const {
     geminiApiKey = "",
+    conversationId = "aira-web-session",
+    conversationState = null,
     page = 1,
     pageSize = 12,
     bypassCache = false
@@ -74,6 +82,8 @@ async function fetchLiveCuratedFeed(
         query: userQuery,
         bypassCache,
         geminiApiKey: geminiApiKey || undefined,
+        conversationId,
+        conversationState,
         page,
         pageSize
       })
@@ -90,6 +100,8 @@ async function fetchLiveCuratedFeed(
       query: userQuery,
       bypassCache,
       geminiApiKey: geminiApiKey || undefined,
+      conversationId,
+      conversationState,
       page,
       pageSize
     });
@@ -103,6 +115,8 @@ async function fetchLiveCuratedFeed(
   const fallbackExec = await globalSearchOrchestrator.executeSearch({
     query: userQuery,
     bypassCache: true,
+    conversationId,
+    conversationState,
     page,
     pageSize
   });
@@ -335,12 +349,18 @@ export default function App() {
       const historyContext = turns
         .map((t) => `Balaji: ${t.userQuery} -> AiRA: ${t.feedData.topicTitle}`)
         .join(" | ");
+      const priorConversationState: ConversationSessionState | null =
+        turns.length > 0
+          ? turns[turns.length - 1]?.feedData?.conversationState || null
+          : null;
 
       const feedData = await fetchLiveCuratedFeed(queryText, {
         timeframe: tf,
         strictFilter: strictSignalOnly,
         geminiApiKey,
         conversationContext: historyContext,
+        conversationId: "aira-web-session",
+        conversationState: priorConversationState,
         page: 1,
         pageSize: 14
       });
@@ -374,10 +394,14 @@ export default function App() {
     if (!silentBackground) setIsGenerating(true);
 
     try {
-      const refreshedData = await fetchLiveCuratedFeed(currentTurn.userQuery, {
+      const effectiveQuery =
+        currentTurn.feedData?.searchTopic || currentTurn.userQuery;
+      const refreshedData = await fetchLiveCuratedFeed(effectiveQuery, {
         timeframe: tf,
         strictFilter: strictSignalOnly,
         geminiApiKey,
+        conversationId: "aira-web-session",
+        conversationState: currentTurn.feedData?.conversationState || null,
         bypassCache: true,
         page: visibleCountMultiplier,
         pageSize: 14
@@ -399,10 +423,14 @@ export default function App() {
     const nextPage = visibleCountMultiplier + 1;
     setVisibleCountMultiplier(nextPage);
     if (!currentTurn) return;
-    const expandedData = await fetchLiveCuratedFeed(currentTurn.userQuery, {
+    const effectiveQuery =
+      currentTurn.feedData?.searchTopic || currentTurn.userQuery;
+    const expandedData = await fetchLiveCuratedFeed(effectiveQuery, {
       timeframe: activeTimeframe,
       strictFilter: strictSignalOnly,
       geminiApiKey,
+      conversationId: "aira-web-session",
+      conversationState: currentTurn.feedData?.conversationState || null,
       page: nextPage,
       pageSize: 14
     });

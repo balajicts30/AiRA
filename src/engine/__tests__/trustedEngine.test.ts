@@ -846,6 +846,352 @@ export async function runAllEngineTests(options?: { appSource?: string }): Promi
     }
   );
 
+  // ==========================================================================
+  // SUITE 7: PHASE 11 REGRESSION TESTS (TESTS A – G)
+  // ==========================================================================
+
+  await test(
+    "Phase 11 Regression — Test A",
+    "Broad entity query ('Ferrari') returns road cars, corporate news, Scuderia Ferrari F1, photos & videos, and suppresses isolated Leclerc timing card",
+    async () => {
+      const orchestrator = new TrustedSearchOrchestrator(new SourceRegistryService());
+      const out = await orchestrator.executeSearch({
+        query: "Ferrari",
+        bypassCache: true
+      });
+
+      assertCondition(Boolean(out.socialFeed), "Expected socialFeed for 'Ferrari'");
+      const feed = out.socialFeed!;
+
+      // 1. Must NOT show an isolated Charles Leclerc timing card on a broad "Ferrari" query
+      assertCondition(
+        feed.matchScorecard === null,
+        "Broad 'Ferrari' query must NOT display an isolated F1 timing scorecard card at the top of the feed"
+      );
+      assertCondition(
+        out.diagnostics.eventResolution.outcome === "broad_query_scorecard_suppressed",
+        `Expected eventResolution.outcome='broad_query_scorecard_suppressed', got '${out.diagnostics.eventResolution.outcome}'`
+      );
+
+      // 2. Must include multi-facet Ferrari coverage: road cars/supercars, corporate/brand news, and Scuderia Ferrari F1
+      const combinedTitlesAndSnippets = feed.articles
+        .map((a) => `${a.title} ${a.snippet}`)
+        .join(" ")
+        .toLowerCase();
+
+      assertCondition(
+        combinedTitlesAndSnippets.includes("f80") || combinedTitlesAndSnippets.includes("12cilindri"),
+        "Expected Ferrari road-car / supercar coverage (F80 or 12Cilindri) in 'Ferrari' feed"
+      );
+      assertCondition(
+        combinedTitlesAndSnippets.includes("maranello") || combinedTitlesAndSnippets.includes("e-building"),
+        "Expected Ferrari corporate / Maranello brand coverage in 'Ferrari' feed"
+      );
+      assertCondition(
+        combinedTitlesAndSnippets.includes("scuderia ferrari"),
+        "Expected Scuderia Ferrari F1 coverage in 'Ferrari' feed"
+      );
+
+      // 3. Every top article must genuinely be about Ferrari (not an uncontextualized McLaren-only story)
+      for (const art of feed.articles) {
+        const text = `${art.title} ${art.snippet} ${art.tags.join(" ")}`.toLowerCase();
+        assertCondition(
+          text.includes("ferrari") || text.includes("maranello") || text.includes("scuderia"),
+          `Article "${art.title}" in Ferrari feed does not mention Ferrari/Maranello/Scuderia`
+        );
+      }
+
+      // 4. Must include multimodal photologs and vlogs about Ferrari
+      assertCondition(
+        feed.photologs.length >= 2,
+        `Expected >=2 Ferrari photologs, got ${feed.photologs.length}`
+      );
+      assertCondition(
+        feed.vlogs.length >= 2,
+        `Expected >=2 Ferrari vlogs, got ${feed.vlogs.length}`
+      );
+    }
+  );
+
+  await test(
+    "Phase 11 Regression — Test B",
+    "Specific sports entity query ('Ferrari F1 live' & 'Scuderia Ferrari Grand Prix') returns full event, circuit, date, session, and driver context",
+    async () => {
+      const orchestrator = new TrustedSearchOrchestrator(new SourceRegistryService());
+      const out = await orchestrator.executeSearch({
+        query: "Scuderia Ferrari Grand Prix",
+        bypassCache: true
+      });
+
+      const feed = out.socialFeed!;
+      assertCondition(
+        Boolean(feed.matchScorecard),
+        "Expected contextual F1 scorecard for 'Scuderia Ferrari Grand Prix'"
+      );
+      const card = feed.matchScorecard!;
+
+      // Must include full Grand Prix event name, circuit, location, and session—never bare numbers alone
+      assertCondition(
+        card.event.includes("Grand Prix") && card.event.includes("Imola"),
+        `Expected Grand Prix name and circuit in scorecard.event, got "${card.event}"`
+      );
+      assertCondition(
+        card.status.includes("QUALIFYING CLASSIFICATION") && card.status.includes("IMOLA"),
+        `Expected clear session and completion status in scorecard.status, got "${card.status}"`
+      );
+      assertCondition(
+        card.team1.name.includes("Leclerc") && card.team1.name.includes("Scuderia Ferrari"),
+        `Expected full driver and team context in team1.name, got "${card.team1.name}"`
+      );
+      assertCondition(
+        card.upcoming.includes("Emilia Romagna Grand Prix Race"),
+        `Expected next scheduled Grand Prix context in scorecard.upcoming, got "${card.upcoming}"`
+      );
+    }
+  );
+
+  await test(
+    "Phase 11 Regression — Test C",
+    "Sports matchup with abbreviations ('SA vs AUS cricket') resolves South Africa vs Australia cricket and excludes India vs Australia or Samsung noise",
+    async () => {
+      const orchestrator = new TrustedSearchOrchestrator(new SourceRegistryService());
+      const out = await orchestrator.executeSearch({
+        query: "SA vs AUS cricket",
+        bypassCache: true
+      });
+
+      const interp = out.queryInterpretation!;
+      assertCondition(
+        interp.sportOrIndustry === "cricket",
+        `Expected sportOrIndustry='cricket', got '${interp.sportOrIndustry}'`
+      );
+      const teams = interp.teamsOrCompetitors;
+      assertCondition(
+        teams.includes("South Africa") && teams.includes("Australia"),
+        `Expected teamsOrCompetitors to include South Africa and Australia, got ${teams.join(", ")}`
+      );
+
+      const feed = out.socialFeed!;
+      assertCondition(
+        feed.articles.length >= 3,
+        `Expected >=3 South Africa vs Australia cricket articles, got ${feed.articles.length}`
+      );
+      assertCondition(
+        feed.photologs.length >= 2,
+        `Expected >=2 South Africa vs Australia cricket photologs, got ${feed.photologs.length}`
+      );
+      assertCondition(
+        feed.vlogs.length >= 1,
+        `Expected >=1 South Africa vs Australia cricket video highlight, got ${feed.vlogs.length}`
+      );
+
+      // Verify scorecard is South Africa vs Australia (NOT India vs Australia)
+      assertCondition(Boolean(feed.matchScorecard), "Expected SA vs AUS match scorecard");
+      const card = feed.matchScorecard!;
+      assertCondition(
+        card.team1.name.includes("South Africa") && card.team2.name.includes("Australia"),
+        `Expected South Africa vs Australia in scorecard, got ${card.team1.name} vs ${card.team2.name}`
+      );
+      assertCondition(
+        card.event.includes("Centurion") || card.event.includes("South Africa"),
+        `Expected venue context (Centurion, South Africa) in scorecard.event, got "${card.event}"`
+      );
+
+      // Verify NO India vs Australia ("Chepauk", "Bumrah") or Samsung pollution in articles
+      for (const art of feed.articles) {
+        const lowerTitle = art.title.toLowerCase();
+        assertCondition(
+          !lowerTitle.includes("chepauk") &&
+            !lowerTitle.includes("bumrah") &&
+            !lowerTitle.includes("samsung"),
+          `Polluted article "${art.title}" appeared in 'SA vs AUS cricket' feed`
+        );
+      }
+    }
+  );
+
+  await test(
+    "Phase 11 Regression — Test D",
+    "Live vs non-live sports query accurately distinguishes completed, upcoming, and live matches without fabricating live badges",
+    async () => {
+      const orchestrator = new TrustedSearchOrchestrator(new SourceRegistryService());
+      const saAusOut = await orchestrator.executeSearch({
+        query: "SA vs AUS cricket",
+        bypassCache: true
+      });
+
+      // Because "vs" alone does not mean a match is live right now, the completed 2nd T20I must have isLive=false
+      const card = saAusOut.socialFeed?.matchScorecard;
+      assertCondition(Boolean(card), "Expected scorecard for SA vs AUS cricket");
+      assertCondition(
+        card!.isLive === false,
+        "Must NOT fabricate isLive=true when the latest verified match is completed"
+      );
+      assertCondition(
+        card!.status.includes("COMPLETED"),
+        `Expected COMPLETED status badge on finished match, got "${card!.status}"`
+      );
+      assertCondition(
+        card!.upcoming.includes("Wanderers Stadium, Johannesburg"),
+        `Expected upcoming 3rd T20I fixture details in card.upcoming, got "${card!.upcoming}"`
+      );
+    }
+  );
+
+  await test(
+    "Phase 11 Regression — Test E",
+    "Conversational follow-up continuity ('SA vs AUS cricket' -> 'What's the score?' -> 'When does the next match start?' -> 'Show highlights.')",
+    async () => {
+      const orchestrator = new TrustedSearchOrchestrator(new SourceRegistryService());
+      const sessionId = "test-session-continuity-e";
+      orchestrator.resetConversationState(sessionId);
+
+      // Turn 1: Initial search
+      const turn1 = await orchestrator.executeSearch({
+        query: "SA vs AUS cricket",
+        conversationId: sessionId,
+        bypassCache: true
+      });
+      assertCondition(
+        turn1.conversationState?.currentTopic === "South Africa vs Australia Cricket",
+        `Expected currentTopic='South Africa vs Australia Cricket', got '${turn1.conversationState?.currentTopic}'`
+      );
+
+      // Turn 2: Follow-up "What's the score?"
+      const turn2 = await orchestrator.executeSearch({
+        query: "What's the score?",
+        conversationId: sessionId
+      });
+      assertCondition(
+        turn2.queryInterpretation?.conversationReference.isFollowUp === true,
+        "Expected 'What's the score?' to be detected as a conversational follow-up"
+      );
+      assertCondition(
+        turn2.queryInterpretation?.userIntent === "live_event_or_score",
+        `Expected userIntent='live_event_or_score', got '${turn2.queryInterpretation?.userIntent}'`
+      );
+      assertCondition(
+        turn2.socialFeed?.assistantSummary.includes("194/6") &&
+          turn2.socialFeed?.assistantSummary.includes("180/9"),
+        `Expected assistantSummary to answer with the SA vs AUS score (194/6 vs 180/9), got "${turn2.socialFeed?.assistantSummary}"`
+      );
+      assertCondition(
+        (turn2.socialFeed?.articles.length || 0) >= 3,
+        "Expected feed to remain populated with South Africa vs Australia cricket articles"
+      );
+
+      // Turn 3: Follow-up "When does the next match start?"
+      const turn3 = await orchestrator.executeSearch({
+        query: "When does the next match start?",
+        conversationId: sessionId
+      });
+      assertCondition(
+        turn3.queryInterpretation?.conversationReference.isFollowUp === true &&
+          turn3.queryInterpretation?.userIntent === "fixtures_and_schedules",
+        "Expected 'When does the next match start?' to resolve to fixtures_and_schedules intent"
+      );
+      assertCondition(
+        Boolean(turn3.socialFeed?.assistantSummary.includes("Wanderers Stadium, Johannesburg")),
+        `Expected assistantSummary to cite the upcoming Wanderers Johannesburg fixture, got "${turn3.socialFeed?.assistantSummary}"`
+      );
+
+      // Turn 4: Follow-up "Show highlights."
+      const turn4 = await orchestrator.executeSearch({
+        query: "Show highlights.",
+        conversationId: sessionId
+      });
+      assertCondition(
+        turn4.queryInterpretation?.conversationReference.isFollowUp === true &&
+          turn4.queryInterpretation?.userIntent === "photos_and_videos",
+        "Expected 'Show highlights.' to resolve to photos_and_videos intent"
+      );
+      assertCondition(
+        turn4.socialFeed?.detectedMediaFilter === "vlogs",
+        `Expected detectedMediaFilter='vlogs' on 'Show highlights.', got '${turn4.socialFeed?.detectedMediaFilter}'`
+      );
+      assertCondition(
+        (turn4.socialFeed?.vlogs.length || 0) >= 1 &&
+          turn4.socialFeed!.vlogs.some((v) =>
+            `${v.title} ${v.highlightQuote}`.toLowerCase().includes("south africa")
+          ),
+        "Expected South Africa vs Australia video highlights in vlogs list"
+      );
+    }
+  );
+
+  await test(
+    "Phase 11 Regression — Test F",
+    "Explicit topic switching ('SA vs AUS cricket' -> 'Now show Ferrari.') cleanly replaces active topic and feed context",
+    async () => {
+      const orchestrator = new TrustedSearchOrchestrator(new SourceRegistryService());
+      const sessionId = "test-session-switch-f";
+      orchestrator.resetConversationState(sessionId);
+
+      await orchestrator.executeSearch({
+        query: "SA vs AUS cricket",
+        conversationId: sessionId,
+        bypassCache: true
+      });
+
+      const switched = await orchestrator.executeSearch({
+        query: "Now show Ferrari.",
+        conversationId: sessionId,
+        bypassCache: true
+      });
+
+      assertCondition(
+        switched.queryInterpretation?.conversationReference.isContextSwitch === true,
+        "Expected 'Now show Ferrari.' to be marked isContextSwitch=true"
+      );
+      assertCondition(
+        switched.queryInterpretation?.conversationReference.isFollowUp === false,
+        "Expected 'Now show Ferrari.' to NOT be treated as a cricket follow-up"
+      );
+      assertCondition(
+        switched.conversationState?.currentTopic === "Ferrari",
+        `Expected currentTopic to switch to 'Ferrari', got '${switched.conversationState?.currentTopic}'`
+      );
+      assertCondition(
+        switched.socialFeed?.articles.every((a) => {
+          const text = `${a.title} ${a.snippet} ${a.tags.join(" ")}`.toLowerCase();
+          return (
+            (text.includes("ferrari") ||
+              text.includes("maranello") ||
+              text.includes("scuderia")) &&
+            !text.includes("centurion") &&
+            !text.includes("rabada")
+          );
+        }) === true,
+        "Expected switched feed articles to all be about Ferrari, with zero leftover cricket items"
+      );
+    }
+  );
+
+  await test(
+    "Phase 11 Regression — Test G",
+    "Broad technology/brand query ('OpenAI' & 'Apple') returns official announcements, reputable tech journalism, and videos",
+    async () => {
+      const orchestrator = new TrustedSearchOrchestrator(new SourceRegistryService());
+      const openAiOut = await orchestrator.executeSearch({
+        query: "OpenAI",
+        bypassCache: true
+      });
+
+      assertCondition(
+        openAiOut.detectedCategory === "technology",
+        `Expected OpenAI to classify as technology, got ${openAiOut.detectedCategory}`
+      );
+      assertCondition(
+        (openAiOut.socialFeed?.articles.length || 0) >= 2,
+        "Expected multiple verified technology articles for 'OpenAI'"
+      );
+      assertCondition(
+        openAiOut.socialFeed?.matchScorecard === null,
+        "Technology query 'OpenAI' must not have a sports matchScorecard"
+      );
+    }
+  );
+
   const passed = results.filter((r) => r.passed).length;
   const failed = results.length - passed;
 

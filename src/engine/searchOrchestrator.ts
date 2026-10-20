@@ -1,6 +1,6 @@
 // ============================================================================
 // TRUSTED SEARCH & MULTIMODAL SOCIAL FEED ORCHESTRATOR
-// (SECTIONS 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+// (PHASES 2, 3, 4, 5, 6, 7, 8, 9, 10)
 // ============================================================================
 
 import {
@@ -13,19 +13,36 @@ import {
   RetrievalAdapter
 } from "./adapters";
 import { CategoryAwareCache, globalResilienceManager } from "./cacheAndRateLimit";
+import {
+  ConversationStateManager,
+  globalConversationStateManager
+} from "./conversationState";
+import {
+  BraveSearchDiscoveryProvider,
+  GuardianOpenPlatformDiscoveryProvider,
+  SearchDiscoveryProvider
+} from "./discoveryLayer";
 import { isBreakingNewsIntent, isHistoricalQueryIntent } from "./freshnessPolicy";
 import {
   resolveArticleOrPhotoMedia,
   resolvePublisherAvatar
 } from "./mediaResolver";
+import {
+  interpretSearchQuery,
+  mapSportDomainToContentCategory
+} from "./queryUnderstanding";
 import { SourceRegistryService, globalSourceRegistry } from "./sourceRegistry";
+import { resolveContextualSportsEvents } from "./sportsEventResolver";
 import {
   CandidateItem,
   ContentCategory,
+  ConversationSessionState,
   DevelopingStoryStream,
   FeedQualityMetrics,
   GroundedSummaryOutput,
   QueryIntentType,
+  QueryInterpretation,
+  SearchDiagnostics,
   SearchIntentProfile,
   SocialArticleCard,
   SocialDiscoveryFeed,
@@ -39,38 +56,8 @@ import {
 import { computeQueryRelevance, runVerificationPipeline } from "./verificationPipeline";
 
 export function classifyQueryCategory(query: string): ContentCategory {
-  const lower = query.toLowerCase();
-  if (
-    /\b(live score|scorecard|live match|who won|cricket|t20|ipl|bcci|icc|premier league|champions league|fifa|uefa|nba|nfl|formula 1|f1|grand prix|ferrari|mclaren|verstappen|hamilton|atp|wta|tennis|chepauk|bumrah|suryakumar|motorsport|paddock|race)\b/.test(
-      lower
-    )
-  ) {
-    return "sports";
-  }
-  if (
-    /\b(apple|iphone|macbook|samsung|galaxy|smartphone|phone|camera review|press release|product spec|pricing|warranty|model|brand)\b/.test(
-      lower
-    )
-  ) {
-    return "brands";
-  }
-  if (
-    /\b(tech|technology|software|hardware|ai|openai|gpt|llm|agent|agents|nvidia|gpu|microsoft|typescript|react|cloudflare|aws|cloud|github|release|changelog|security|vulnerability|sdk|api|spatial|calm)\b/.test(
-      lower
-    )
-  ) {
-    return "technology";
-  }
-  if (/\b(nasa|space|spacex|starship|artemis|science|physics|climate|astronomy|biology|research|lunar)\b/.test(lower)) {
-    return "science";
-  }
-  if (/\b(market|stocks|economy|inflation|earnings|central bank|fed|bond|finance|cnbc|ft|bloomberg)\b/.test(lower)) {
-    return "finance";
-  }
-  if (/\b(japan|kyoto|tokyo|kanazawa|travel|shinkansen|tourism|itinerary|rail|flight|city|kissaten|fuji)\b/.test(lower)) {
-    return "travel";
-  }
-  return "news";
+  const interp = interpretSearchQuery(query);
+  return mapSportDomainToContentCategory(interp);
 }
 
 export function formatRelativeTime(timestampMs: number): string {
@@ -86,40 +73,24 @@ export function formatRelativeTime(timestampMs: number): string {
 }
 
 /**
- * Intent-Aware Query Analyzer (Section 6: Separate the search query from feed presentation)
+ * Intent-Aware Query Analyzer (Phase 3 & Section 6: Separate the search query from feed presentation)
+ * Wraps structured QueryInterpretation into SearchIntentProfile for full UI compatibility.
  */
-export function analyzeSearchIntent(rawQuery: string): SearchIntentProfile {
-  const lower = rawQuery.toLowerCase();
+export function analyzeSearchIntent(
+  rawQuery: string,
+  conversationState?: ConversationSessionState | null
+): SearchIntentProfile {
+  const interp = interpretSearchQuery(rawQuery, conversationState);
+  const lower = `${rawQuery} ${interp.normalizedQuery}`.toLowerCase();
+  const primaryCategory = mapSportDomainToContentCategory(interp);
 
-  let detectedMediaFilter: SearchIntentProfile["detectedMediaFilter"] = null;
-  if (/\b(only|just)\s+(photo|photos|photolog|photologs|pictures|images)\b/.test(lower)) {
-    detectedMediaFilter = "photologs";
-  } else if (/\b(only|just)\s+(vlog|vlogs|video|videos|reels|highlights)\b/.test(lower)) {
-    detectedMediaFilter = "vlogs";
-  } else if (/\b(only|just)\s+(blog|blogs|article|articles|news|essays)\b/.test(lower)) {
-    detectedMediaFilter = "articles";
-  }
-
-  const cleaned = rawQuery
-    .replace(/^(hi|hey|hello|aira|good morning|good afternoon|good evening)[,\s!]*/i, "")
-    .replace(
-      /\b(what happened with|what is happening with|show me|tell me more about|tell me about|pull up|curate|give me|find me|search for|can you show|switch gears:?|summarize key takeaways from the vlog)\b/gi,
-      " "
-    )
-    .replace(/\b(photologs?|vlogs?|blogs?|articles?|stories|reels|last night'?s?|the|please|from|about|on|only|just)\b/gi, " ")
-    .replace(/[?"'!,.;:]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const cleanTopic = cleaned.length >= 2 ? cleaned : rawQuery.trim();
-  const primaryCategory = classifyQueryCategory(rawQuery);
-
-  // Determine related categories for broad cross-category discovery
   const relatedCategories: ContentCategory[] = [];
-  if (primaryCategory === "sports") {
+  if (interp.isBroadMultiFacetEntity && interp.primarySubject.toLowerCase() === "ferrari") {
+    relatedCategories.push("brands", "sports", "technology", "news");
+  } else if (primaryCategory === "sports") {
     relatedCategories.push("live_scores", "news", "brands");
   } else if (primaryCategory === "brands") {
-    relatedCategories.push("technology", "news");
+    relatedCategories.push("technology", "news", "sports");
   } else if (primaryCategory === "technology") {
     relatedCategories.push("brands", "science", "news");
   } else if (primaryCategory === "science") {
@@ -130,41 +101,23 @@ export function analyzeSearchIntent(rawQuery: string): SearchIntentProfile {
     relatedCategories.push("finance", "technology", "sports");
   }
 
-  // Extract key named entities
-  const entityCandidates = [
-    "Formula 1",
-    "F1",
-    "Ferrari",
-    "McLaren",
-    "Red Bull",
-    "India",
-    "Australia",
-    "Bumrah",
-    "Suryakumar Yadav",
-    "Chepauk",
-    "Kyoto",
-    "Tokyo",
-    "Kanazawa",
-    "Japan",
-    "OpenAI",
-    "NVIDIA",
-    "Apple",
-    "iPhone",
-    "Samsung",
-    "SpaceX",
-    "NASA"
-  ];
-  const entities = entityCandidates.filter((ent) =>
-    lower.includes(ent.toLowerCase())
-  );
-
-  // Determine time sensitivity and intent type
-  const isHist = isHistoricalQueryIntent(rawQuery);
-  const isBreak = isBreakingNewsIntent(rawQuery);
-  const isLive = /\b(live|score|scorecard|right now|in progress|timing|standings)\b/.test(lower);
-  const isVideo = /\b(highlights|video|videos|vlog|vlogs|onboard|interview|walkthrough)\b/.test(lower);
-  const isPhoto = /\b(photo|photos|photolog|photologs|gallery|images|pictures)\b/.test(lower);
-  const isReview = /\b(review|reviews|specs|specifications|comparison|vs|camera|smartphone|phone|car|2027)\b/.test(lower);
+  const isHist = isHistoricalQueryIntent(lower);
+  const isBreak = isBreakingNewsIntent(lower);
+  const isLive =
+    interp.timeSensitivity === "live" ||
+    interp.userIntent === "live_event_or_score";
+  const isVideo =
+    interp.requestedContentType === "vlogs" ||
+    /\b(highlights|video|videos|vlog|vlogs|onboard|interview|walkthrough)\b/.test(lower);
+  const isPhoto =
+    interp.requestedContentType === "photologs" ||
+    /\b(photo|photos|photolog|photologs|gallery|images|pictures)\b/.test(lower);
+  const isReview =
+    interp.userIntent === "product_information" ||
+    interp.userIntent === "reviews_and_comparisons" ||
+    /\b(review|reviews|specs|specifications|comparison|camera|smartphone|phone|car|2027)\b/.test(
+      lower
+    );
 
   const timeSensitivity: SearchIntentProfile["timeSensitivity"] = isLive
     ? "live"
@@ -172,6 +125,8 @@ export function analyzeSearchIntent(rawQuery: string): SearchIntentProfile {
     ? "breaking"
     : isHist
     ? "historical"
+    : interp.timeSensitivity === "upcoming"
+    ? "upcoming"
     : primaryCategory === "travel"
     ? "evergreen"
     : "recent";
@@ -186,27 +141,44 @@ export function analyzeSearchIntent(rawQuery: string): SearchIntentProfile {
     ? "product_review_specs"
     : isHist
     ? "historical_context"
-    : /\b(latest|news|update|updates|breaking)\b/.test(lower)
+    : interp.userIntent === "latest_news" || interp.userIntent === "breaking_news"
     ? "latest_news"
     : "broad_discovery";
 
+  let detectedMediaFilter: SearchIntentProfile["detectedMediaFilter"] = null;
+  if (interp.requestedContentType === "photologs") {
+    detectedMediaFilter = "photologs";
+  } else if (interp.requestedContentType === "vlogs") {
+    detectedMediaFilter = "vlogs";
+  } else if (interp.requestedContentType === "articles") {
+    detectedMediaFilter = "articles";
+  }
+
   let visualTheme: SearchIntentProfile["visualTheme"] = "general";
-  if (primaryCategory === "sports") visualTheme = "sports";
-  else if (primaryCategory === "travel") visualTheme = "travel";
-  else if (/\b(food|coffee|ramen|cafe|recipe|baking|restaurant|matcha|kissaten)\b/i.test(rawQuery)) {
+  if (
+    primaryCategory === "sports" ||
+    interp.sportOrIndustry === "cricket" ||
+    interp.sportOrIndustry === "formula1"
+  ) {
+    visualTheme = "sports";
+  } else if (primaryCategory === "travel") {
+    visualTheme = "travel";
+  } else if (/\b(food|coffee|ramen|cafe|recipe|baking|restaurant|matcha|kissaten)\b/i.test(rawQuery)) {
     visualTheme = "food";
   }
 
   return {
     rawQuery,
-    cleanTopic,
-    entities,
+    cleanTopic: interp.primarySubject,
+    entities: interp.namedEntities.map((e) => e.canonicalName),
     primaryCategory,
     relatedCategories,
     timeSensitivity,
     intentType,
+    detailedIntent: interp.userIntent,
     detectedMediaFilter,
-    visualTheme
+    visualTheme,
+    interpretation: interp
   };
 }
 
@@ -218,14 +190,31 @@ export class TrustedSearchOrchestrator {
   private devToNasaAdapter = new DevToAndNasaMediaAdapter();
   private baselineAdapter = new ApprovedPublisherBaselineAdapter();
   private liveScoreAdapter = new EspnLiveScoreAdapter();
+  private discoveryProviders: SearchDiscoveryProvider[] = [
+    new BraveSearchDiscoveryProvider(),
+    new GuardianOpenPlatformDiscoveryProvider()
+  ];
   private registry: SourceRegistryService;
+  private conversationManager: ConversationStateManager;
 
-  constructor(registry: SourceRegistryService = globalSourceRegistry) {
+  constructor(
+    registry: SourceRegistryService = globalSourceRegistry,
+    conversationManager: ConversationStateManager = globalConversationStateManager
+  ) {
     this.registry = registry;
+    this.conversationManager = conversationManager;
   }
 
   public invalidateCache(prefix?: string): void {
     this.cache.invalidate(prefix);
+  }
+
+  public getConversationState(sessionId: string): ConversationSessionState | null {
+    return this.conversationManager.getSession(sessionId);
+  }
+
+  public resetConversationState(sessionId: string): void {
+    this.conversationManager.clearSession(sessionId);
   }
 
   public async executeSearch(params: {
@@ -236,6 +225,8 @@ export class TrustedSearchOrchestrator {
     geminiApiKey?: string;
     page?: number;
     pageSize?: number;
+    conversationId?: string;
+    conversationState?: ConversationSessionState | null;
   }): Promise<TrustedSearchEngineResponse> {
     const {
       query,
@@ -244,18 +235,60 @@ export class TrustedSearchOrchestrator {
       additionalCandidates = [],
       geminiApiKey,
       page = 1,
-      pageSize = 12
+      pageSize = 12,
+      conversationId,
+      conversationState: explicitConversationState
     } = params;
 
     const cleanQuery = query.trim();
-    const intent = analyzeSearchIntent(cleanQuery);
+    const activeSessionState =
+      explicitConversationState !== undefined
+        ? explicitConversationState
+        : conversationId
+        ? this.conversationManager.getSession(conversationId)
+        : null;
+
+    // Phase 3 & Phase 8: Interpret query with active conversation state
+    const interp = interpretSearchQuery(cleanQuery, activeSessionState);
+    const intent = analyzeSearchIntent(cleanQuery, activeSessionState);
     const detectedCategory = categoryOverride || intent.primaryCategory;
     const isHistorical = intent.timeSensitivity === "historical";
-    const cacheKey = `${detectedCategory}:${cleanQuery.toLowerCase()}:p${page}`;
 
-    if (!bypassCache) {
+    // Build cache key incorporating resolved normalized query & intent
+    const cacheKey = `${detectedCategory}:${interp.normalizedQuery.toLowerCase()}:${interp.userIntent}:p${page}`;
+
+    // Phase 8: Always bypass stale cache when user asks a time-sensitive follow-up (e.g., "What's the score?")
+    const forceFreshForFollowUp =
+      interp.conversationReference.isFollowUp &&
+      (interp.userIntent === "live_event_or_score" ||
+        interp.userIntent === "fixtures_and_schedules" ||
+        interp.userIntent === "results_and_standings");
+
+    if (!bypassCache && !forceFreshForFollowUp) {
       const cached = this.cache.get(cacheKey);
       if (cached.status !== "miss" && cached.value) {
+        if (conversationId && cached.value.socialFeed) {
+          const updatedSession = this.conversationManager.updateSessionFromTurn({
+            conversationId,
+            interp,
+            verifiedResults: cached.value.results,
+            liveScoreEvents: cached.value.liveScoreEvents,
+            activeMediaFilter: cached.value.socialFeed.detectedMediaFilter
+          });
+          return {
+            ...cached.value,
+            fromCache: true,
+            cacheStatus: cached.status,
+            queryInterpretation: interp,
+            conversationState: updatedSession,
+            socialFeed: {
+              ...cached.value.socialFeed,
+              feedContext: updatedSession.feedContext,
+              conversationState: updatedSession,
+              queryInterpretation: interp
+            }
+          };
+        }
         return {
           ...cached.value,
           fromCache: true,
@@ -274,39 +307,73 @@ export class TrustedSearchOrchestrator {
         this.baselineAdapter
       ];
 
-      const providerDiagnostics: TrustedSearchEngineResponse["diagnostics"]["providersQueried"] = [];
+      const providerDiagnostics: SearchDiagnostics["providersQueried"] = [];
       const rawCandidates: CandidateItem[] = [...additionalCandidates];
-      let liveScoreEvents: StructuredSportsEvent[] = [];
+      let rawProviderEvents: StructuredSportsEvent[] = [];
 
-      // 1. Run Sports Live Scoreboard & Sport News Adapter when relevant
-      if (
+      // Effective query used for provider retrieval (uses resolved conversational topic when follow-up)
+      const effectiveRetrievalQuery = interp.primarySubject || interp.normalizedQuery || cleanQuery;
+
+      // 1. Run Phase 2 Search Discovery Layer (Brave Search API / Guardian Open Platform when configured)
+      const discoveryOutputs = await Promise.all(
+        this.discoveryProviders.map((dp) =>
+          dp.discover(interp, detectedCategory, this.registry)
+        )
+      );
+      for (const dOut of discoveryOutputs) {
+        if (dOut.status === "ok" && dOut.candidates.length > 0) {
+          rawCandidates.push(...dOut.candidates);
+        }
+        providerDiagnostics.push({
+          providerId: dOut.providerId,
+          status: dOut.status,
+          latencyMs: dOut.latencyMs,
+          itemsReturned: dOut.candidates.length,
+          errorDetail: dOut.errorDetail
+        });
+      }
+
+      // 2. Run Sports Live Scoreboard & Sport News Adapter when relevant
+      const isSportsRelated =
         detectedCategory === "sports" ||
         detectedCategory === "live_scores" ||
-        intent.relatedCategories.includes("sports")
-      ) {
+        intent.relatedCategories.includes("sports") ||
+        interp.sportOrIndustry === "cricket" ||
+        interp.sportOrIndustry === "formula1";
+
+      if (isSportsRelated) {
         const scoreStart = Date.now();
-        const scoreOut = await this.liveScoreAdapter.retrieveLiveScores(cleanQuery, this.registry);
-        liveScoreEvents = scoreOut.events;
+        const scoreOut = await this.liveScoreAdapter.retrieveLiveScores(
+          effectiveRetrievalQuery,
+          this.registry
+        );
+        rawProviderEvents = scoreOut.events;
         rawCandidates.push(...scoreOut.articles);
         providerDiagnostics.push({
           providerId: this.liveScoreAdapter.adapterId,
-          status: scoreOut.status,
+          status: scoreOut.status === "ok" ? "ok" : "error",
           latencyMs: Date.now() - scoreStart,
           itemsReturned: scoreOut.events.length + scoreOut.articles.length,
           errorDetail: scoreOut.errorDetail
         });
       }
 
-      // 2. Run All Multimodal Content Retrieval Adapters Concurrently
+      // 3. Run All Multimodal Content Retrieval Adapters Concurrently
+      const retrievalQueryForAdapters = interp.conversationReference.isFollowUp
+        ? `${effectiveRetrievalQuery} ${cleanQuery}`.trim()
+        : interp.normalizedQuery;
+
       const adapterOutputs = await Promise.all(
-        adapters.map((ad) => ad.retrieve(cleanQuery, detectedCategory, this.registry))
+        adapters.map((ad) =>
+          ad.retrieve(retrievalQueryForAdapters, detectedCategory, this.registry)
+        )
       );
 
       for (const out of adapterOutputs) {
         rawCandidates.push(...out.candidates);
         providerDiagnostics.push({
           providerId: out.adapterId,
-          status: out.status,
+          status: out.status === "ok" ? "ok" : "error",
           latencyMs: out.latencyMs,
           itemsReturned: out.candidates.length,
           errorDetail: out.errorDetail
@@ -321,13 +388,14 @@ export class TrustedSearchOrchestrator {
         candidateMetaMap.set(c.url, c);
       }
 
-      // 3. Execute 8-Stage Verification Pipeline
+      // 4. Execute 8-Stage Verification & 12-Factor Relevance Scoring Pipeline
       const pipelineOut = runVerificationPipeline({
-        query: cleanQuery,
+        query: effectiveRetrievalQuery,
         targetCategory: detectedCategory,
         candidates: rawCandidates,
         registry: this.registry.getAllSources(),
-        requireQueryMatch: true
+        requireQueryMatch: true,
+        interpretation: interp
       });
 
       // Record any rejections into the central SourceRegistryService telemetry
@@ -337,10 +405,10 @@ export class TrustedSearchOrchestrator {
 
       let groundedSynthesis: GroundedSummaryOutput = pipelineOut.groundedSynthesis;
 
-      // 4. Optional Evidence-Grounded AI Synthesis (Strictly Isolated to Verified Results Only)
+      // 5. Optional Evidence-Grounded AI Synthesis (Strictly Isolated to Verified Results Only)
       if (geminiApiKey && pipelineOut.verifiedResults.length > 0) {
         const aiGrounded = await this.tryEvidenceGroundedGeminiSummary(
-          cleanQuery,
+          effectiveRetrievalQuery,
           pipelineOut.verifiedResults,
           geminiApiKey
         );
@@ -349,18 +417,86 @@ export class TrustedSearchOrchestrator {
         }
       }
 
-      // 5. Assemble Multimodal Social Discovery Feed (Articles, Photologs, Vlogs, Scorecards, Developing Stories)
+      // 6. Phase 4 & Phase 5: Resolve Contextual Sports Events & Scorecards
+      const resolvedSports = resolveContextualSportsEvents({
+        interp,
+        providerEvents: rawProviderEvents
+      });
+      const liveScoreEvents = resolvedSports.events;
+
+      // 7. Assemble Multimodal Social Discovery Feed (Articles, Photologs, Vlogs, Scorecards, Developing Stories)
       const socialFeed = this.buildSocialDiscoveryFeed({
         query: cleanQuery,
+        interp,
         intent,
         verifiedResults: pipelineOut.verifiedResults,
         liveScoreEvents,
+        resolvedScorecard: resolvedSports.scorecard,
         candidateMetaMap,
         rejectedCount: pipelineOut.rejectedLogs.length,
         groundedSynthesis,
         page,
         pageSize
       });
+
+      // 8. Phase 7 & Phase 8: Update Conversation State & FeedContext
+      const sessionKey =
+        conversationId || activeSessionState?.conversationId || "default-session";
+      const updatedSession = this.conversationManager.updateSessionFromTurn({
+        conversationId: sessionKey,
+        interp,
+        verifiedResults: pipelineOut.verifiedResults,
+        liveScoreEvents,
+        activeMediaFilter: socialFeed.detectedMediaFilter
+      });
+
+      socialFeed.feedContext = updatedSession.feedContext;
+      socialFeed.conversationState = updatedSession;
+      socialFeed.queryInterpretation = interp;
+
+      // 9. Phase 10: Build Structured Search Diagnostics
+      const scoringDiagnostics: SearchDiagnostics["scoringDiagnostics"] =
+        pipelineOut.verifiedResults.slice(0, 12).map((r) => ({
+          title: r.title,
+          sourceName: r.source_name,
+          dataType: r.data_type,
+          entityMatchScore: r.score_breakdown?.primaryEntityScore ?? 0,
+          intentMatchScore: r.score_breakdown?.queryIntentScore ?? 0,
+          relevanceScore: r.score_breakdown?.totalScore ?? Math.round((r.relevance_score || 0.85) * 100),
+          freshnessScore: r.score_breakdown?.recencyScore ?? 8,
+          finalRankingScore: r.score_breakdown?.totalScore ?? Math.round(r.confidence * 100)
+        }));
+
+      const diagnostics: SearchDiagnostics = {
+        originalQuery: cleanQuery,
+        resolvedQuery: interp.normalizedQuery,
+        resolvedIntent: interp.userIntent,
+        timeSensitivity: interp.timeSensitivity,
+        identifiedEntities: interp.namedEntities.map((e) => ({
+          canonicalName: e.canonicalName,
+          entityType: e.entityType,
+          sportOrIndustry: e.sportOrIndustry
+        })),
+        generatedProviderQueries: interp.generatedProviderQueries,
+        candidatesRetrieved: rawCandidates.length,
+        candidatesVerified: pipelineOut.verifiedResults.length,
+        candidatesRejected: pipelineOut.rejectedLogs.length,
+        rejectedBreakdown: pipelineOut.rejectedLogs,
+        providersQueried: providerDiagnostics,
+        scoringDiagnostics,
+        eventResolution: resolvedSports.diagnostic,
+        finalFeedComposition: {
+          activeTopic: updatedSession.currentTopic,
+          conversationId: updatedSession.conversationId,
+          isFollowUp: interp.conversationReference.isFollowUp,
+          isContextSwitch: interp.conversationReference.isContextSwitch,
+          articlesCount: socialFeed.articles.length,
+          photologsCount: socialFeed.photologs.length,
+          vlogsCount: socialFeed.vlogs.length,
+          hasScorecard: Boolean(socialFeed.matchScorecard),
+          developingStoriesCount: socialFeed.developingStories.length
+        }
+      };
 
       const response: TrustedSearchEngineResponse = {
         query: cleanQuery,
@@ -369,17 +505,13 @@ export class TrustedSearchOrchestrator {
         executedAt,
         fromCache: false,
         cacheStatus: "miss",
+        queryInterpretation: interp,
+        conversationState: updatedSession,
         groundedSynthesis,
         results: pipelineOut.verifiedResults,
         liveScoreEvents,
         socialFeed,
-        diagnostics: {
-          candidatesRetrieved: rawCandidates.length,
-          candidatesVerified: pipelineOut.verifiedResults.length,
-          candidatesRejected: pipelineOut.rejectedLogs.length,
-          rejectedBreakdown: pipelineOut.rejectedLogs,
-          providersQueried: providerDiagnostics
-        }
+        diagnostics
       };
 
       const hasActiveLiveScore = liveScoreEvents.some((ev) => ev.isLive);
@@ -396,9 +528,11 @@ export class TrustedSearchOrchestrator {
    */
   private buildSocialDiscoveryFeed(params: {
     query: string;
+    interp: QueryInterpretation;
     intent: SearchIntentProfile;
     verifiedResults: StandardizedSearchResult[];
     liveScoreEvents: StructuredSportsEvent[];
+    resolvedScorecard: SocialMatchScorecard | null;
     candidateMetaMap: Map<string, CandidateItem>;
     rejectedCount: number;
     groundedSynthesis: GroundedSummaryOutput;
@@ -407,9 +541,11 @@ export class TrustedSearchOrchestrator {
   }): SocialDiscoveryFeed {
     const {
       query,
+      interp,
       intent,
       verifiedResults,
       liveScoreEvents,
+      resolvedScorecard,
       candidateMetaMap,
       rejectedCount,
       groundedSynthesis,
@@ -421,6 +557,8 @@ export class TrustedSearchOrchestrator {
     const photologs: SocialPhotologCard[] = [];
     const vlogs: SocialVlogCard[] = [];
 
+    const effectiveQueryForMedia = interp.primarySubject || query;
+
     verifiedResults.forEach((res, idx) => {
       const meta =
         candidateMetaMap.get(`${res.data_type}:${res.canonical_url}`) ||
@@ -430,16 +568,18 @@ export class TrustedSearchOrchestrator {
         ? new Date(res.published_at).getTime()
         : new Date(res.retrieved_at).getTime();
 
-      const relScore = computeQueryRelevance(query, res.title, res.summary, res.tags);
+      const relScore =
+        res.relevance_score ??
+        computeQueryRelevance(effectiveQueryForMedia, res.title, res.summary, res.tags, interp);
       const signalScore = Math.min(
         99,
-        Math.max(82, Math.round(res.confidence * 78 + relScore * 20))
+        Math.max(82, Math.round(res.confidence * 76 + relScore * 22))
       );
 
       if (res.data_type === "photo_report") {
         const media = resolveArticleOrPhotoMedia({
           candidateThumbnailUrl: res.thumbnail_url || meta?.thumbnailUrl,
-          query,
+          query: effectiveQueryForMedia,
           category: res.category,
           publisherName: res.source_name,
           index: photologs.length
@@ -460,12 +600,15 @@ export class TrustedSearchOrchestrator {
           publishedAt: formatRelativeTime(tsMs),
           timestampMs: tsMs,
           cameraSpec: meta?.cameraSpec || `${res.source_name} • ${formatRelativeTime(tsMs)}`,
-          contextualText: res.summary
+          contextualText: res.summary,
+          primaryEntity: res.primary_entity,
+          relatedEntities: res.related_entities,
+          eventId: res.event_id
         });
       } else if (res.data_type === "video_report") {
         const media = resolveArticleOrPhotoMedia({
           candidateThumbnailUrl: res.thumbnail_url || meta?.thumbnailUrl,
-          query,
+          query: effectiveQueryForMedia,
           category: res.category,
           publisherName: res.source_name,
           index: vlogs.length
@@ -486,12 +629,15 @@ export class TrustedSearchOrchestrator {
           publishedAt: formatRelativeTime(tsMs),
           timestampMs: tsMs,
           thumbnailUrl: media.url,
-          highlightQuote: `"${res.summary.slice(0, 155)}${res.summary.length > 155 ? "..." : ""}"`
+          highlightQuote: `"${res.summary.slice(0, 155)}${res.summary.length > 155 ? "..." : ""}"`,
+          primaryEntity: res.primary_entity,
+          relatedEntities: res.related_entities,
+          eventId: res.event_id
         });
       } else {
         const media = resolveArticleOrPhotoMedia({
           candidateThumbnailUrl: res.thumbnail_url || meta?.thumbnailUrl,
-          query,
+          query: effectiveQueryForMedia,
           category: res.category,
           publisherName: res.source_name,
           index: articles.length
@@ -546,78 +692,16 @@ export class TrustedSearchOrchestrator {
             : isReview
             ? "independent_review"
             : "verified_reporting",
-          freshnessStatus: res.freshness_status
+          freshnessStatus: res.freshness_status,
+          primaryEntity: res.primary_entity,
+          relatedEntities: res.related_entities,
+          eventId: res.event_id
         });
       }
     });
 
-    // Build Match Scorecard for sports queries (either from live ESPN event or verified match report)
-    let matchScorecard: SocialMatchScorecard | null = null;
-    const lowerQ = query.toLowerCase();
-
-    if (liveScoreEvents.length > 0 && liveScoreEvents[0].participants.length >= 2) {
-      const ev = liveScoreEvents[0];
-      const p1 = ev.participants[0];
-      const p2 = ev.participants[1];
-      matchScorecard = {
-        id: ev.id,
-        event: `${ev.competition}${ev.venue ? ` • ${ev.venue}` : ""}`,
-        status: ev.isLive
-          ? `LIVE • ${ev.statusDetail}`
-          : ev.isStale
-          ? `STALE SCORE • ${ev.statusDetail}`
-          : ev.statusDetail.toUpperCase(),
-        isLive: ev.isLive,
-        isStale: ev.isStale,
-        team1: {
-          name: p1.abbreviation || p1.name,
-          score: p1.score,
-          overs: p1.detail || ev.sport.toUpperCase(),
-          flag: ev.sport === "formula1" ? "🏎️" : ev.sport === "soccer" ? "⚽" : "🏆"
-        },
-        team2: {
-          name: p2.abbreviation || p2.name,
-          score: p2.score,
-          overs: p2.detail || ev.sport.toUpperCase(),
-          flag: ev.sport === "formula1" ? "🏁" : ev.sport === "soccer" ? "⚽" : "🏆"
-        },
-        playerOfMatch: ev.notes || `Official ${ev.providerName} Telemetry`,
-        upcoming: `Refreshed ${new Date(ev.retrievedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
-        sourceName: ev.providerName,
-        sourceUrl: ev.canonicalUrl,
-        lastRefreshedAt: ev.retrievedAt
-      };
-    } else if (/\b(cricket|chepauk|bumrah|suryakumar|ind|aus|bcci|t20)\b/.test(lowerQ)) {
-      matchScorecard = {
-        id: "score-bcci-ind-aus-3rd-t20",
-        event: "3rd T20I • M.A. Chidambaram Stadium, Chennai",
-        status: "FINAL • INDIA WON BY 6 RUNS",
-        isLive: false,
-        isStale: false,
-        team1: { name: "IND", score: "186/5", overs: "20.0", flag: "🇮🇳" },
-        team2: { name: "AUS", score: "180/8", overs: "20.0", flag: "🇦🇺" },
-        playerOfMatch: "Suryakumar Yadav (78 off 42) • Jasprit Bumrah (3/19)",
-        upcoming: "4th T20I • Friday, 7:00 PM IST • M. Chinnaswamy Stadium, Bengaluru",
-        sourceName: "BCCI & ESPNcricinfo Official Scorecard",
-        sourceUrl: "https://www.bcci.tv/international/men/fixtures",
-        lastRefreshedAt: new Date().toISOString()
-      };
-    } else if (/\b(f1|formula 1|ferrari|mclaren|verstappen|grand prix|qualifying)\b/.test(lowerQ)) {
-      matchScorecard = {
-        id: "score-f1-grand-prix-classification",
-        event: "FIA Formula 1 World Championship • Qualifying & Race Control",
-        status: "OFFICIAL FIA CLASSIFICATION",
-        isLive: false,
-        isStale: false,
-        team1: { name: "LEC / FER", score: "1:15.912", overs: "P1 Sector 2 Best", flag: "🏎️" },
-        team2: { name: "NOR / MCL", score: "+0.048s", overs: "P2 Front Row", flag: "🏁" },
-        playerOfMatch: "Tyre Allocation: C3 Hard / C4 Medium / C5 Soft",
-        upcoming: "Grand Prix Lights Out • Official Live Timing on Formula1.com",
-        sourceName: "Formula1.com & FIA Timing",
-        sourceUrl: "https://www.formula1.com/en/latest/all",
-        lastRefreshedAt: new Date().toISOString()
-      };
-    }
+    // Phase 4 & Phase 5: Use only the contextualized scorecard from resolveContextualSportsEvents
+    const matchScorecard: SocialMatchScorecard | null = resolvedScorecard;
 
     // Build Developing Story Stream when multiple publishers cover the topic (Section 4F)
     const developingStories: DevelopingStoryStream[] = [];
@@ -662,23 +746,20 @@ export class TrustedSearchOrchestrator {
       ])
     ).filter(Boolean);
 
-    // Related topics & follow-up prompts for seamless exploration (Section 2 & 5)
-    const relatedTopics = this.generateRelatedTopics(intent);
-    const followUpPrompts = this.generateFollowUpPrompts(intent);
+    // Related topics & follow-up prompts for seamless exploration (Phase 7 & 8)
+    const relatedTopics = this.generateRelatedTopics(interp);
+    const followUpPrompts = this.generateFollowUpPrompts(interp);
 
-    // Conversational curator summary (warm, engaging, and grounded in verified results)
-    const topArticleTitle = articles[0]?.title || intent.cleanTopic;
-    const assistantSummary = groundedSynthesis.isAiGenerated
-      ? groundedSynthesis.synthesizedSummary
-      : articles.length > 0 || photologs.length > 0 || vlogs.length > 0
-      ? `Here is your live curated feed for "${intent.cleanTopic}", Balaji! I gathered ${
-          articles.length
-        } articles, ${photologs.length} visual photologs, and ${
-          vlogs.length
-        } video vlogs across ${allSources.slice(0, 4).join(", ")}${
-          allSources.length > 4 ? ` and ${allSources.length - 4} more sources` : ""
-        }—led by "${topArticleTitle}".`
-      : groundedSynthesis.synthesizedSummary;
+    // Conversational curator summary (grounded in verified results, sports event status, and follow-up intent)
+    const assistantSummary = this.buildContextualAssistantSummary({
+      interp,
+      articles,
+      photologs,
+      vlogs,
+      allSources,
+      matchScorecard,
+      groundedSynthesis
+    });
 
     // Compute quality & breadth metrics (Section 12)
     const formatTypesPresent = [
@@ -710,11 +791,12 @@ export class TrustedSearchOrchestrator {
 
     return {
       topicTitle: `Live Curated Feed: ${
-        intent.cleanTopic.charAt(0).toUpperCase() + intent.cleanTopic.slice(1)
+        interp.primarySubject.charAt(0).toUpperCase() + interp.primarySubject.slice(1)
       }`,
-      searchTopic: intent.cleanTopic,
+      searchTopic: interp.primarySubject,
       assistantSummary,
       intent,
+      queryInterpretation: interp,
       matchScorecard,
       liveScoreEvents,
       developingStories,
@@ -740,26 +822,129 @@ export class TrustedSearchOrchestrator {
     };
   }
 
-  private generateRelatedTopics(intent: SearchIntentProfile): string[] {
-    const lower = intent.rawQuery.toLowerCase();
-    if (/\b(f1|formula 1|ferrari|mclaren|grand prix|motorsport)\b/.test(lower)) {
+  private buildContextualAssistantSummary(params: {
+    interp: QueryInterpretation;
+    articles: SocialArticleCard[];
+    photologs: SocialPhotologCard[];
+    vlogs: SocialVlogCard[];
+    allSources: string[];
+    matchScorecard: SocialMatchScorecard | null;
+    groundedSynthesis: GroundedSummaryOutput;
+  }): string {
+    const {
+      interp,
+      articles,
+      photologs,
+      vlogs,
+      allSources,
+      matchScorecard,
+      groundedSynthesis
+    } = params;
+
+    if (groundedSynthesis.isAiGenerated) {
+      return groundedSynthesis.synthesizedSummary;
+    }
+
+    const followUpAction = interp.conversationReference.followUpAction;
+
+    // Handle conversational follow-ups directly while preserving the active topic
+    if (interp.conversationReference.isFollowUp) {
+      if (
+        (followUpAction === "live_score" || interp.userIntent === "live_event_or_score") &&
+        matchScorecard
+      ) {
+        return `For ${interp.primarySubject} (${matchScorecard.event}): ${matchScorecard.status} — ${matchScorecard.team1.name} ${matchScorecard.team1.score} (${matchScorecard.team1.overs}) vs ${matchScorecard.team2.name} ${matchScorecard.team2.score} (${matchScorecard.team2.overs}). ${matchScorecard.playerOfMatch}. ${matchScorecard.upcoming}.`;
+      }
+      if (
+        (followUpAction === "next_fixture" || interp.userIntent === "fixtures_and_schedules") &&
+        matchScorecard
+      ) {
+        return `Next scheduled fixture for ${interp.primarySubject}: ${matchScorecard.upcoming} (Source: ${matchScorecard.sourceName}). Latest result: ${matchScorecard.status} at ${matchScorecard.event}.`;
+      }
+      if (
+        (followUpAction === "highlights_video" || interp.requestedContentType === "vlogs") &&
+        vlogs.length > 0
+      ) {
+        return `Here are the verified video highlights & vlogs for ${interp.primarySubject}, led by "${vlogs[0].title}" from ${vlogs[0].sourceName} (${vlogs[0].duration}). I've focused your feed on video highlights while keeping full context active.`;
+      }
+      if (
+        (followUpAction === "photos" || interp.requestedContentType === "photologs") &&
+        photologs.length > 0
+      ) {
+        return `Here are ${photologs.length} verified photo stories for ${interp.primarySubject}, starting with "${photologs[0].caption}" from ${photologs[0].sourceName}.`;
+      }
+    }
+
+    if (matchScorecard) {
+      const topArticleTitle = articles[0]?.title || interp.primarySubject;
+      return `${matchScorecard.event} (${matchScorecard.status}): ${matchScorecard.team1.name} ${matchScorecard.team1.score} vs ${matchScorecard.team2.name} ${matchScorecard.team2.score}. ${matchScorecard.upcoming}. Across ${allSources.slice(0, 4).join(", ")}, I also curated ${articles.length} articles, ${photologs.length} photologs, and ${vlogs.length} video highlights—led by "${topArticleTitle}".`;
+    }
+
+    const topArticleTitle = articles[0]?.title || interp.primarySubject;
+    if (articles.length > 0 || photologs.length > 0 || vlogs.length > 0) {
+      return `Here is your live curated feed for "${interp.primarySubject}", Balaji! I gathered ${
+        articles.length
+      } articles, ${photologs.length} visual photologs, and ${
+        vlogs.length
+      } video vlogs across ${allSources.slice(0, 4).join(", ")}${
+        allSources.length > 4 ? ` and ${allSources.length - 4} more sources` : ""
+      }—led by "${topArticleTitle}".`;
+    }
+
+    return groundedSynthesis.synthesizedSummary;
+  }
+
+  private generateRelatedTopics(interp: QueryInterpretation): string[] {
+    const lower = interp.normalizedQuery.toLowerCase();
+    const teams = interp.teamsOrCompetitors.map((t) => t.toLowerCase());
+    const hasSa = teams.includes("south africa");
+    const hasAus = teams.includes("australia");
+    const hasFerrari = interp.namedEntities.some(
+      (e) =>
+        e.canonicalName.toLowerCase() === "ferrari" ||
+        e.canonicalName.toLowerCase() === "scuderia ferrari"
+    );
+
+    if (hasSa && hasAus) {
+      return [
+        "South Africa vs Australia 3rd T20I Cape Town preview",
+        "SA vs AUS Centurion & Wanderers T20I highlights",
+        "Aiden Markram & Kagiso Rabada match analysis",
+        "Wanderers & Newlands cricket photologs",
+        "ICC Men's T20I championship standings"
+      ];
+    }
+
+    if (hasFerrari) {
+      return [
+        "Ferrari F80 & 12Cilindri road car reviews",
+        "Scuderia Ferrari F1 Imola GP race report",
+        "Maranello e-Building & Ferrari corporate news",
+        "Fiorano circuit & Maranello photologs",
+        "Charles Leclerc & Lewis Hamilton onboard vlogs"
+      ];
+    }
+
+    if (/\b(f1|formula 1|mclaren|grand prix|motorsport)\b/.test(lower)) {
       return [
         "F1 live race timing & standings",
-        "Ferrari 2027 car & aero updates",
+        "Scuderia Ferrari F1 Imola GP report",
         "F1 race highlights & onboard laps",
         "McLaren vs Red Bull telemetry",
         "Paddock photologs"
       ];
     }
+
     if (/\b(cricket|bcci|icc|bumrah|chepauk|ind|aus|t20)\b/.test(lower)) {
       return [
+        "South Africa vs Australia T20I series",
         "India vs Australia Bengaluru T20I preview",
         "Jasprit Bumrah death-bowling analysis",
-        "ICC Men's T20I rankings",
         "Chepauk stadium photologs",
-        "Formula 1 championship updates"
+        "ICC Men's T20I rankings"
       ];
     }
+
     if (/\b(japan|kyoto|tokyo|kanazawa|shinkansen)\b/.test(lower)) {
       return [
         "Kyoto early-morning temple trails",
@@ -769,6 +954,7 @@ export class TrustedSearchOrchestrator {
         "Calm hardware & industrial design"
       ];
     }
+
     if (/\b(smartphone|iphone|samsung|apple|camera|phone)\b/.test(lower)) {
       return [
         "Flagship smartphone camera blind test",
@@ -778,32 +964,59 @@ export class TrustedSearchOrchestrator {
         "Local-first AI agents"
       ];
     }
+
     return [
-      `${intent.cleanTopic} video highlights & vlogs`,
-      `${intent.cleanTopic} photo stories`,
-      "Formula 1 paddock & race analysis",
-      "Flagship smartphone reviews & specs",
+      `${interp.primarySubject} video highlights & vlogs`,
+      `${interp.primarySubject} photo stories`,
+      "Ferrari road cars & Scuderia Ferrari F1",
+      "South Africa vs Australia cricket",
       "Japan travel photologs"
     ];
   }
 
-  private generateFollowUpPrompts(intent: SearchIntentProfile): string[] {
-    const topic = intent.cleanTopic;
-    const lower = intent.rawQuery.toLowerCase();
-    if (/\b(f1|formula 1|ferrari)\b/.test(lower)) {
+  private generateFollowUpPrompts(interp: QueryInterpretation): string[] {
+    const topic = interp.primarySubject;
+    const teams = interp.teamsOrCompetitors.map((t) => t.toLowerCase());
+    const hasSa = teams.includes("south africa");
+    const hasAus = teams.includes("australia");
+    const hasFerrari = interp.namedEntities.some(
+      (e) =>
+        e.canonicalName.toLowerCase() === "ferrari" ||
+        e.canonicalName.toLowerCase() === "scuderia ferrari"
+    );
+
+    if (hasSa && hasAus) {
+      return [
+        "What's the score?",
+        "When does the next match start?",
+        "Show highlights"
+      ];
+    }
+
+    if (hasFerrari) {
+      return [
+        "Show Ferrari road car reviews & F80 specs",
+        "Show Scuderia Ferrari F1 race report & telemetry",
+        "Only photologs from Maranello & Fiorano"
+      ];
+    }
+
+    if (interp.sportOrIndustry === "cricket") {
+      return [
+        "What's the score?",
+        "When does the next match start?",
+        "Show highlights"
+      ];
+    }
+
+    if (interp.sportOrIndustry === "formula1") {
       return [
         "F1 race highlights & onboard telemetry",
-        "Ferrari 2027 car technical updates",
+        "Scuderia Ferrari F1 technical updates",
         "Only photologs from the F1 paddock"
       ];
     }
-    if (/\b(cricket|bumrah|chepauk)\b/.test(lower)) {
-      return [
-        "Live cricket news & upcoming India fixtures",
-        "Formula 1 championship standings & paddock blogs",
-        "Show me peaceful travel photologs from Japan"
-      ];
-    }
+
     return [
       `Latest breaking news on ${topic}`,
       `Only photologs about ${topic}`,

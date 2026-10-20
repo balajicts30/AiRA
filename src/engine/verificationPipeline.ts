@@ -1,6 +1,14 @@
 // ============================================================================
-// 8-STAGE SOURCE VERIFICATION PIPELINE, RANKING & GROUNDED SYNTHESIS
-// (SECTIONS 7, 9, 10, 11, 14)
+// SOURCE VERIFICATION PIPELINE, 12-FACTOR RELEVANCE RANKING & GROUNDED SYNTHESIS
+// (PHASES 3, 6, 9, 10)
+// Enforces the strict separation of Source Eligibility and Query Relevance:
+//   1. Discover candidates
+//   2. Resolve user's intent and entities
+//   3. Validate source eligibility and permitted access
+//   4. Normalize content and metadata
+//   5. Evaluate topical relevance (12-Factor Relevance Scorer)
+//   6. Rank, deduplicate, and diversify across publishers & facets
+//   7. Generate evidence-grounded summaries & validate citations
 // ============================================================================
 
 import {
@@ -10,11 +18,14 @@ import {
   isHistoricalQueryIntent,
   parseValidIsoTimestamp
 } from "./freshnessPolicy";
+import { interpretSearchQuery } from "./queryUnderstanding";
+import { scoreItemAgainstInterpretation } from "./relevanceScorer";
 import {
   CandidateItem,
   CitationReference,
   ContentCategory,
   GroundedSummaryOutput,
+  QueryInterpretation,
   RejectedSourceLog,
   SourceRegistryRecord,
   StandardizedSearchResult,
@@ -85,106 +96,36 @@ export function detectWireSyndication(title: string, summary: string, sourceDoma
   return { isWireSyndicated: false };
 }
 
-const TOPIC_SYNONYM_GROUPS: readonly (readonly string[])[] = [
-  ["f1", "formula 1", "formula1", "grand prix", "ferrari", "mclaren", "red bull", "motorsport", "qualifying", "paddock"],
-  ["cricket", "t20", "t20i", "ipl", "bcci", "icc", "chepauk", "bumrah", "suryakumar", "ind", "aus", "test match"],
-  ["smartphone", "phone", "iphone", "samsung", "galaxy", "android", "camera", "flagship", "mobile"],
-  ["japan", "kyoto", "tokyo", "kanazawa", "shinkansen", "fuji", "jnto", "kissaten"],
-  ["ai", "openai", "agent", "agents", "llm", "nvidia", "gpu", "hardware", "spatial", "calm"],
-  ["space", "spacex", "starship", "nasa", "artemis", "lunar", "orbital", "rocket"]
-];
-
+/**
+ * Computes a normalized 0.0 - 1.0 relevance score using our Phase 6 12-Factor Relevance Scorer.
+ */
 export function computeQueryRelevance(
   query: string,
   title: string,
   summary: string,
-  tags: string[] = []
+  tags: string[] = [],
+  precomputedInterp?: QueryInterpretation
 ): number {
-  const stopWords = new Set([
-    "the",
-    "and",
-    "for",
-    "with",
-    "what",
-    "happened",
-    "show",
-    "tell",
-    "about",
-    "from",
-    "latest",
-    "news",
-    "live",
-    "update",
-    "updates",
-    "last",
-    "night",
-    "today",
-    "how",
-    "why",
-    "who",
-    "where",
-    "when",
-    "only",
-    "just",
-    "photologs",
-    "photolog",
-    "photos",
-    "vlogs",
-    "vlog",
-    "videos",
-    "video",
-    "blogs",
-    "blog",
-    "articles",
-    "article",
-    "hi",
-    "hey",
-    "hello",
-    "please",
-    "new"
-  ]);
-  const tokens = query
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length >= 2 && !stopWords.has(w));
-
-  if (tokens.length === 0) return 0.75;
-
-  const haystackTitle = title.toLowerCase();
-  const tagText = tags.join(" ").toLowerCase();
-  const haystackBody = `${title} ${summary} ${tagText}`.toLowerCase();
-
-  let matchedInTitle = 0;
-  let matchedInBody = 0;
-
-  for (const tk of tokens) {
-    const synonymGroup = TOPIC_SYNONYM_GROUPS.find((grp) => grp.includes(tk));
-    const termsToCheck = synonymGroup ? [tk, ...synonymGroup] : [tk];
-
-    if (termsToCheck.some((term) => haystackTitle.includes(term))) {
-      matchedInTitle += 1;
-    }
-    if (termsToCheck.some((term) => haystackBody.includes(term))) {
-      matchedInBody += 1;
-    }
-  }
-
-  if (matchedInBody === 0) return 0;
-
-  const titleRatio = matchedInTitle / tokens.length;
-  const bodyRatio = matchedInBody / tokens.length;
-  return Math.min(1, Number((bodyRatio * 0.65 + titleRatio * 0.35).toFixed(2)));
+  const interp = precomputedInterp || interpretSearchQuery(query);
+  const breakdown = scoreItemAgainstInterpretation({
+    title,
+    summary,
+    tags,
+    interp
+  });
+  if (!breakdown.isRelevant) return 0;
+  return Math.min(1, Number((breakdown.totalScore / 100).toFixed(2)));
 }
 
 /**
- * Runs Stages 2 through 8 of the Server-Side Verification Pipeline on candidate items.
+ * Runs the Server-Side Verification, Topical Relevance & Ranking Pipeline on candidate items.
  */
 export function runVerificationPipeline(params: {
   query: string;
   targetCategory: ContentCategory;
   candidates: CandidateItem[];
   registry: SourceRegistryRecord[];
+  interpretation?: QueryInterpretation;
   requireQueryMatch?: boolean;
   nowMs?: number;
 }): {
@@ -197,12 +138,16 @@ export function runVerificationPipeline(params: {
     targetCategory,
     candidates,
     registry,
+    interpretation,
     requireQueryMatch = true,
     nowMs = Date.now()
   } = params;
 
-  const isHistorical = isHistoricalQueryIntent(query);
-  const isBreaking = isBreakingNewsIntent(query);
+  const interp = interpretation || interpretSearchQuery(query);
+  const isHistorical =
+    interp.timeSensitivity === "historical" || isHistoricalQueryIntent(query);
+  const isBreaking =
+    interp.timeSensitivity === "breaking" || isBreakingNewsIntent(query);
   const nowIso = new Date(nowMs).toISOString();
 
   const rejectedLogs: RejectedSourceLog[] = [];
@@ -212,7 +157,7 @@ export function runVerificationPipeline(params: {
     const cand = candidates[idx];
 
     // ========================================================================
-    // STAGE 2: URL & DOMAIN VERIFICATION (SSRF, Denylist, Redirects, Allowlist)
+    // STAGE 3: URL & DOMAIN VERIFICATION (SSRF, Denylist, Redirects, Allowlist)
     // ========================================================================
     const urlCheck = verifyUrlAgainstRegistry(cand.url, registry, cand.redirectChain || []);
     if (!urlCheck.allowed || !urlCheck.matchedSource) {
@@ -226,7 +171,7 @@ export function runVerificationPipeline(params: {
     const canonicalUrl = urlCheck.canonicalUrl;
 
     // ========================================================================
-    // STAGE 3: CONTENT VALIDATION & PROMPT-INJECTION DEFENSE
+    // STAGE 4: CONTENT VALIDATION, PROMPT-INJECTION DEFENSE & NORMALIZATION
     // ========================================================================
     const rawTitle = cand.title || "";
     const rawSummary = cand.summary || "";
@@ -261,18 +206,13 @@ export function runVerificationPipeline(params: {
       continue;
     }
 
-    const relevance = computeQueryRelevance(query, cleanTitle, cleanSummary, cand.tags || []);
-    if (requireQueryMatch && relevance === 0) {
-      continue;
-    }
-
-    // ========================================================================
-    // STAGE 4: CATEGORY-SPECIFIC FRESHNESS VALIDATION
-    // ========================================================================
     const effectiveCategory = cand.category || matchedSource.category || targetCategory;
     const pubIso = parseValidIsoTimestamp(cand.publishedAt);
     const updIso = parseValidIsoTimestamp(cand.updatedAt);
 
+    // ========================================================================
+    // STAGE 4B: CATEGORY-SPECIFIC FRESHNESS VALIDATION
+    // ========================================================================
     const freshnessEval = evaluateContentFreshness({
       publishedAt: pubIso,
       updatedAt: updIso,
@@ -296,7 +236,50 @@ export function runVerificationPipeline(params: {
     }
 
     // ========================================================================
-    // STAGE 5: FACTUAL CONFIDENCE & CITATION CONSTRUCTION
+    // STAGE 5: TOPICAL & ENTITY RELEVANCE EVALUATION (12-Factor Scorer)
+    // Separate from source eligibility: A trusted source can still return an
+    // irrelevant article (e.g., IND vs AUS when querying SA vs AUS).
+    // ========================================================================
+    const isPrimary =
+      matchedSource.sourceType === "primary" ||
+      matchedSource.sourceType === "official" ||
+      matchedSource.sourceType === "governing_body" ||
+      matchedSource.sourceType === "technical_documentation";
+
+    const resolvedDataType =
+      cand.dataType || (isPrimary ? ("press_release" as const) : ("article" as const));
+
+    const wireInfo = detectWireSyndication(cleanTitle, cleanSummary, matchedSource.canonicalDomain);
+
+    const scoreBreakdown = scoreItemAgainstInterpretation({
+      title: cleanTitle,
+      summary: cleanSummary,
+      tags: cand.tags || [],
+      dataType: resolvedDataType,
+      sourceTier: matchedSource.trustTier,
+      publishedAt: pubIso,
+      hasThumbnail: Boolean(cand.thumbnailUrl),
+      hasAuthor: Boolean(cand.author),
+      isSyndicatedWire: wireInfo.isWireSyndicated,
+      facet: cand.facet,
+      interp,
+      nowMs
+    });
+
+    if (requireQueryMatch && !scoreBreakdown.isRelevant) {
+      rejectedLogs.push({
+        timestamp: nowIso,
+        url: canonicalUrl,
+        normalizedDomain: matchedSource.canonicalDomain,
+        reasonCode: "IRRELEVANT_ENTITY_OR_TOPIC",
+        detail: `Candidate from approved source "${matchedSource.publisherName}" excluded due to insufficient entity/topic relevance (${scoreBreakdown.explanation})`,
+        query
+      });
+      continue;
+    }
+
+    // ========================================================================
+    // STAGE 6: FACTUAL CONFIDENCE & CITATION CONSTRUCTION
     // ========================================================================
     const tierBaseConfidence =
       matchedSource.trustTier === 1 ? 0.94 : matchedSource.trustTier === 2 ? 0.86 : 0.78;
@@ -310,12 +293,6 @@ export function runVerificationPipeline(params: {
       0.99,
       Math.max(0.55, Number((tierBaseConfidence + freshnessBonus).toFixed(2)))
     );
-
-    const isPrimary =
-      matchedSource.sourceType === "primary" ||
-      matchedSource.sourceType === "official" ||
-      matchedSource.sourceType === "governing_body" ||
-      matchedSource.sourceType === "technical_documentation";
 
     const citationId = `cit-${matchedSource.id}-${idx + 1}`;
     const citation: CitationReference = {
@@ -334,7 +311,6 @@ export function runVerificationPipeline(params: {
       isPrimarySource: isPrimary
     };
 
-    const wireInfo = detectWireSyndication(cleanTitle, cleanSummary, matchedSource.canonicalDomain);
     const policy =
       DEFAULT_CATEGORY_FRESHNESS_POLICIES[effectiveCategory] ||
       DEFAULT_CATEGORY_FRESHNESS_POLICIES.news;
@@ -345,8 +321,6 @@ export function runVerificationPipeline(params: {
     const verificationStatus: VerificationStatus = isPrimary
       ? "primary_official"
       : "single_source_verified";
-
-    const resolvedDataType = cand.dataType || (isPrimary ? ("press_release" as const) : ("article" as const));
 
     stageFiveResults.push({
       id: `res-${matchedSource.id}-${Date.now()}-${idx}`,
@@ -374,19 +348,28 @@ export function runVerificationPipeline(params: {
       language: matchedSource.supportedLanguages[0] || "en",
       region: matchedSource.geographicCoverage[0] || "Global",
       author: cand.author ? sanitizeUntrustedText(cand.author) : matchedSource.publisherName,
-      tags: cand.tags && cand.tags.length > 0 ? cand.tags : [`#${effectiveCategory}`, `#Tier${matchedSource.trustTier}`],
+      tags:
+        cand.tags && cand.tags.length > 0
+          ? cand.tags
+          : [`#${effectiveCategory}`, `#Tier${matchedSource.trustTier}`],
       citations: [citation],
       deduplication_key: `${resolvedDataType}:${computeNormalizedDedupeKey(cleanTitle)}`,
       provider: cand.providerName,
       data_type: resolvedDataType,
       thumbnail_url: cand.thumbnailUrl,
       media_duration: cand.mediaDuration,
-      expires_at: expiresAtIso
+      expires_at: expiresAtIso,
+      primary_entity: cand.primaryEntity || interp.primarySubject,
+      related_entities:
+        cand.relatedEntities || interp.namedEntities.map((e) => e.canonicalName),
+      event_id: cand.eventId || null,
+      relevance_score: scoreBreakdown.totalScore,
+      score_breakdown: scoreBreakdown
     });
   }
 
   // ==========================================================================
-  // STAGE 6: DEDUPLICATION & WIRE-SYNDICATION vs INDEPENDENT CORROBORATION
+  // STAGE 7: DEDUPLICATION & WIRE-SYNDICATION vs INDEPENDENT CORROBORATION
   // ==========================================================================
   const dedupedByUrlAndType = new Map<string, StandardizedSearchResult>();
   for (const item of stageFiveResults) {
@@ -409,17 +392,18 @@ export function runVerificationPipeline(params: {
     for (let j = 0; j < uniqueResults.length; j++) {
       if (i === j) continue;
       const itemB = uniqueResults[j];
-      if (itemA.data_type !== itemB.data_type && (itemA.data_type === "photo_report" || itemB.data_type === "photo_report")) {
+      if (
+        itemA.data_type !== itemB.data_type &&
+        (itemA.data_type === "photo_report" || itemB.data_type === "photo_report")
+      ) {
         continue;
       }
 
-      // Check if itemA and itemB cover the same specific story/event
       const overlap = computeStoryOverlap(itemA.title, itemB.title);
       if (overlap >= 0.45) {
         const effectivePublisherB =
           itemB.is_syndicated_wire && itemB.wire_agency ? itemB.wire_agency : itemB.source_name;
 
-        // Do NOT count two newspapers repeating the same wire agency as independent corroboration
         if (!independentPublishers.has(effectivePublisherB)) {
           independentPublishers.add(effectivePublisherB);
           if (itemB.citations[0] && combinedCitations.length < 4) {
@@ -449,13 +433,11 @@ export function runVerificationPipeline(params: {
   }
 
   // ==========================================================================
-  // SECTION 8 & 9: BALANCED FEED-RANKING ENGINE
-  // Combines relevance, source credibility, freshness, media availability,
-  // corroboration importance, and publisher diversity.
+  // STAGE 8: 12-FACTOR RELEVANCE RANKING & PUBLISHER/FACET DIVERSIFICATION
   // ==========================================================================
   const initialSorted = Array.from(seenDedupeKeys.values()).sort((a, b) => {
-    const scoreA = computeRankingScore(a, query, nowMs);
-    const scoreB = computeRankingScore(b, query, nowMs);
+    const scoreA = a.relevance_score ?? 50;
+    const scoreB = b.relevance_score ?? 50;
     return scoreB - scoreA;
   });
 
@@ -466,21 +448,30 @@ export function runVerificationPipeline(params: {
       const seenCount = publisherCounts.get(item.source_domain) || 0;
       publisherCounts.set(item.source_domain, seenCount + 1);
       const diversityPenalty = seenCount * 4;
-      const finalScore = computeRankingScore(item, query, nowMs) - diversityPenalty;
+      const corroborationBonus = Math.min(8, (item.corroboration_count - 1) * 4);
+      const finalScore = (item.relevance_score ?? 50) + corroborationBonus - diversityPenalty;
+      if (item.score_breakdown) {
+        item.score_breakdown.diversityAdjustment = corroborationBonus - diversityPenalty;
+        item.score_breakdown.totalScore = Math.max(0, Math.min(100, Math.round(finalScore)));
+      }
+      item.relevance_score = Math.max(0, Math.min(100, Math.round(finalScore)));
       return { item, finalScore };
     })
     .sort((a, b) => b.finalScore - a.finalScore)
     .map((entry) => entry.item);
 
   // ==========================================================================
-  // STAGE 8: FINAL OUTPUT SCHEMA VALIDATION
+  // STAGE 9: FINAL OUTPUT SCHEMA VALIDATION
   // ==========================================================================
   const finalValidatedResults = rankedResults.filter(validateFinalResultSchema);
 
   // ==========================================================================
-  // STAGE 7: EVIDENCE-GROUNDED AI / DETERMINISTIC CITATION SYNTHESIS
+  // STAGE 10: EVIDENCE-GROUNDED CITATION SYNTHESIS
   // ==========================================================================
-  const groundedSynthesis = synthesizeGroundedSummary(query, finalValidatedResults);
+  const groundedSynthesis = synthesizeGroundedSummary(
+    interp.primarySubject || query,
+    finalValidatedResults
+  );
 
   return {
     verifiedResults: finalValidatedResults,
@@ -510,38 +501,6 @@ function computeStoryOverlap(titleA: string, titleB: string): number {
     if (wordsB.has(w)) shared += 1;
   }
   return shared / Math.min(wordsA.size, wordsB.size);
-}
-
-function computeRankingScore(
-  item: StandardizedSearchResult,
-  query: string,
-  nowMs: number
-): number {
-  const tierScore = item.source_tier === 1 ? 30 : item.source_tier === 2 ? 24 : 18;
-  const relevanceScore = computeQueryRelevance(query, item.title, item.summary, item.tags) * 38;
-  const corroborationScore = Math.min(12, (item.corroboration_count - 1) * 6);
-  const primaryBonus = item.verification_status === "primary_official" ? 6 : 0;
-  const mediaQualityBonus = item.thumbnail_url ? 5 : 0;
-
-  let recencyScore = 5;
-  if (item.published_at) {
-    const ageHours = Math.max(0, (nowMs - new Date(item.published_at).getTime()) / 3600000);
-    recencyScore = Math.max(0, 15 - Math.log10(ageHours + 1) * 6);
-  } else if (item.freshness_status === "unverified") {
-    recencyScore = 0;
-  }
-
-  const wirePenalty = item.is_syndicated_wire ? -4 : 0;
-
-  return (
-    tierScore +
-    relevanceScore +
-    corroborationScore +
-    primaryBonus +
-    mediaQualityBonus +
-    recencyScore +
-    wirePenalty
-  );
 }
 
 export function validateFinalResultSchema(item: StandardizedSearchResult): boolean {
@@ -611,7 +570,6 @@ export function synthesizeGroundedSummary(
     };
   });
 
-  // Check if any results have unverified timestamps or single-source status
   const unverifiedTimeCount = topItems.filter((i) => i.freshness_status === "unverified").length;
   const singleSourceOnly = topItems.every((i) => i.corroboration_count === 1 && i.source_tier > 1);
 

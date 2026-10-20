@@ -200,7 +200,8 @@ const MULTI_PART_TLDS = new Set([
   "com.au",
   "org.au",
   "co.jp",
-  "co.nz"
+  "co.nz",
+  "co.za"
 ]);
 
 export function extractDomainParts(hostname: string): {
