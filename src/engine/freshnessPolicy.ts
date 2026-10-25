@@ -14,7 +14,7 @@ export interface CategoryFreshnessPolicy {
   description: string;
 }
 
-export const DEFAULT_CATEGORY_FRESHNESS_POLICIES: Record<ContentCategory, CategoryFreshnessPolicy> = {
+export const DEFAULT_CATEGORY_FRESHNESS_POLICIES: Record<string, CategoryFreshnessPolicy> = {
   live_scores: {
     category: "live_scores",
     liveTargetMs: 45 * 1000, // 45 seconds
@@ -131,6 +131,78 @@ export const DEFAULT_CATEGORY_FRESHNESS_POLICIES: Record<ContentCategory, Catego
     cacheTtlMs: 30 * 60 * 1000,
     allowStaleWhileRevalidate: true,
     description: "Official transport advisories and destination publications"
+  },
+  culture: {
+    category: "culture",
+    liveTargetMs: 24 * 60 * 60 * 1000,
+    freshTargetMs: 14 * 24 * 60 * 60 * 1000,
+    maxEligibleAgeMs: 365 * 24 * 60 * 60 * 1000,
+    cacheTtlMs: 30 * 60 * 1000,
+    allowStaleWhileRevalidate: true,
+    description: "Arts, cultural exhibitions, and historical perspectives"
+  },
+  food: {
+    category: "food",
+    liveTargetMs: 24 * 60 * 60 * 1000,
+    freshTargetMs: 30 * 24 * 60 * 60 * 1000,
+    maxEligibleAgeMs: 365 * 24 * 60 * 60 * 1000,
+    cacheTtlMs: 30 * 60 * 1000,
+    allowStaleWhileRevalidate: true,
+    description: "Culinary discoveries, recipes, and dining reviews"
+  },
+  health: {
+    category: "health",
+    liveTargetMs: 12 * 60 * 60 * 1000,
+    freshTargetMs: 7 * 24 * 60 * 60 * 1000,
+    maxEligibleAgeMs: 180 * 24 * 60 * 60 * 1000,
+    cacheTtlMs: 15 * 60 * 1000,
+    allowStaleWhileRevalidate: true,
+    description: "Peer-reviewed health guidelines and medical research"
+  },
+  politics: {
+    category: "politics",
+    liveTargetMs: 15 * 60 * 1000,
+    freshTargetMs: 60 * 60 * 1000,
+    maxEligibleAgeMs: 48 * 60 * 60 * 1000,
+    cacheTtlMs: 5 * 60 * 1000,
+    allowStaleWhileRevalidate: true,
+    description: "Policy announcements, government proceedings, and geopolitical reports"
+  },
+  business: {
+    category: "business",
+    liveTargetMs: 30 * 60 * 1000,
+    freshTargetMs: 4 * 60 * 60 * 1000,
+    maxEligibleAgeMs: 30 * 24 * 60 * 60 * 1000,
+    cacheTtlMs: 5 * 60 * 1000,
+    allowStaleWhileRevalidate: true,
+    description: "Corporate announcements, mergers, and commerce analysis"
+  },
+  lifestyle: {
+    category: "lifestyle",
+    liveTargetMs: 24 * 60 * 60 * 1000,
+    freshTargetMs: 14 * 24 * 60 * 60 * 1000,
+    maxEligibleAgeMs: 180 * 24 * 60 * 60 * 1000,
+    cacheTtlMs: 30 * 60 * 1000,
+    allowStaleWhileRevalidate: true,
+    description: "Trends, design, personal development, and living"
+  },
+  environment: {
+    category: "environment",
+    liveTargetMs: 6 * 60 * 60 * 1000,
+    freshTargetMs: 7 * 24 * 60 * 60 * 1000,
+    maxEligibleAgeMs: 365 * 24 * 60 * 60 * 1000,
+    cacheTtlMs: 20 * 60 * 1000,
+    allowStaleWhileRevalidate: true,
+    description: "Climate observations, conservation news, and environmental reports"
+  },
+  general_discovery: {
+    category: "general_discovery",
+    liveTargetMs: 60 * 60 * 1000,
+    freshTargetMs: 7 * 24 * 60 * 60 * 1000,
+    maxEligibleAgeMs: 90 * 24 * 60 * 60 * 1000,
+    cacheTtlMs: 10 * 60 * 1000,
+    allowStaleWhileRevalidate: true,
+    description: "Universal open-world discovery across general legitimate subjects"
   }
 };
 
