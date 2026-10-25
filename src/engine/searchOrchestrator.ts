@@ -20,7 +20,8 @@ import {
 import {
   BraveSearchDiscoveryProvider,
   GuardianOpenPlatformDiscoveryProvider,
-  SearchDiscoveryProvider
+  SearchDiscoveryProvider,
+  UniversalOpenDiscoveryProvider
 } from "./discoveryLayer";
 import { isBreakingNewsIntent, isHistoricalQueryIntent } from "./freshnessPolicy";
 import {
@@ -37,6 +38,7 @@ import {
   doesEventMatchQueryEntities,
   resolveContextualSportsEvents
 } from "./sportsEventResolver";
+import { clusterCrossPublisherArticles } from "./storyClustering";
 import {
   CandidateItem,
   ContentCategory,
@@ -205,7 +207,8 @@ export class TrustedSearchOrchestrator {
   private liveScoreAdapter = new EspnLiveScoreAdapter();
   private discoveryProviders: SearchDiscoveryProvider[] = [
     new BraveSearchDiscoveryProvider(),
-    new GuardianOpenPlatformDiscoveryProvider()
+    new GuardianOpenPlatformDiscoveryProvider(),
+    new UniversalOpenDiscoveryProvider()
   ];
   private registry: SourceRegistryService;
   private conversationManager: ConversationStateManager;
@@ -407,13 +410,14 @@ export class TrustedSearchOrchestrator {
         candidateMetaMap.set(c.url, c);
       }
 
-      // 4. Execute 8-Stage Verification & 12-Factor Relevance Scoring Pipeline
+      // 4. Execute 8-Stage Verification & Feedly-Style Relevance Scoring Pipeline
       const pipelineOut = runVerificationPipeline({
         query: effectiveRetrievalQuery,
         targetCategory: detectedCategory,
         candidates: rawCandidates,
         registry: this.registry.getAllSources(),
         requireQueryMatch: true,
+        allowDynamicSources: true,
         interpretation: interp
       });
 
@@ -883,9 +887,16 @@ export class TrustedSearchOrchestrator {
       });
     }
 
+    // Section 7: Intelligent Deduplication & Cross-Publisher Story Clustering
+    const { clusteredArticles, developingStories: clusteredDevelopingStories } =
+      clusterCrossPublisherArticles(articles);
+    const effectiveArticles = clusteredArticles;
+    const effectiveDevelopingStories =
+      clusteredDevelopingStories.length > 0 ? clusteredDevelopingStories : developingStories;
+
     // Apply pagination window while preserving full counts
     const limit = page * pageSize;
-    const pagedArticles = articles.slice(0, limit);
+    const pagedArticles = effectiveArticles.slice(0, limit);
     const pagedPhotos = photologs.slice(0, Math.max(6, Math.ceil(limit * 0.75)));
     const pagedVlogs = vlogs.slice(0, Math.max(4, Math.ceil(limit * 0.5)));
 
@@ -906,7 +917,7 @@ export class TrustedSearchOrchestrator {
       queryInterpretation: interp,
       matchScorecard,
       liveScoreEvents,
-      developingStories,
+      developingStories: effectiveDevelopingStories,
       articles: pagedArticles,
       photologs: pagedPhotos,
       vlogs: pagedVlogs,

@@ -578,6 +578,249 @@ export function resolveConversationReference(
 }
 
 /**
+ * Open-world heuristic entity extraction that dynamically resolves proper nouns,
+ * comparisons, quoted terms, and technical acronyms without requiring a rigid, fixed list.
+ */
+export function extractOpenWorldEntities(
+  rawQuery: string,
+  domain: SportOrIndustryDomain = "general_discovery"
+): ResolvedEntity[] {
+  const query = rawQuery.trim();
+  const entities: ResolvedEntity[] = [];
+  const seen = new Set<string>();
+
+  // 1. Quoted exact phrases (e.g. "James Webb Space Telescope")
+  const quoteMatches = query.matchAll(/["']([^"']{3,50})["']/g);
+  for (const m of quoteMatches) {
+    const val = m[1].trim();
+    if (val && !seen.has(val.toLowerCase())) {
+      seen.add(val.toLowerCase());
+      entities.push({
+        canonicalName: val,
+        matchedTerm: val,
+        aliases: [val.toLowerCase()],
+        entityType: "topic",
+        sportOrIndustry: domain
+      });
+    }
+  }
+
+  // 2. Comparisons (e.g. "Rust vs Zig", "iPhone 16 vs Galaxy S25")
+  const vsMatch = query.match(
+    /^(?:compare\s+)?([A-Za-z0-9\s.-]{2,30})\s+(?:vs\.?|versus|compared\s+to)\s+([A-Za-z0-9\s.-]{2,30})/i
+  );
+  if (vsMatch) {
+    const e1 = vsMatch[1].trim();
+    const e2 = vsMatch[2].trim();
+    [e1, e2].forEach((compEntity) => {
+      if (compEntity && !seen.has(compEntity.toLowerCase())) {
+        seen.add(compEntity.toLowerCase());
+        entities.push({
+          canonicalName: compEntity,
+          matchedTerm: compEntity,
+          aliases: [compEntity.toLowerCase()],
+          entityType: "concept",
+          sportOrIndustry: domain
+        });
+      }
+    });
+  }
+
+  // 3. Proper noun / Title-cased phrases (e.g., "Quantum Computing", "French Revolution", "Ludwig van Beethoven")
+  const hasMixedCasing = /[A-Z]/.test(query) && /[a-z]/.test(query);
+  if (hasMixedCasing) {
+    const titleMatches = query.match(
+      /\b([A-Z][a-z0-9]+(?:\s+(?:of|the|de|van|von|in|and|for)\s+[A-Z][a-z0-9]+|\s+[A-Z][a-z0-9]+)*)\b/g
+    );
+    if (titleMatches) {
+      for (const t of titleMatches) {
+        const clean = t.trim();
+        if (/^(What|How|Why|Where|When|Who|Show|Tell|Explain|Find|Explore|Which|Can|Could|Would)$/i.test(clean)) {
+          continue;
+        }
+        if (clean.length >= 3 && !seen.has(clean.toLowerCase())) {
+          seen.add(clean.toLowerCase());
+          entities.push({
+            canonicalName: clean,
+            matchedTerm: clean,
+            aliases: [clean.toLowerCase()],
+            entityType: "topic",
+            sportOrIndustry: domain
+          });
+        }
+      }
+    }
+  }
+
+  // 4. Acronyms & technical tokens (e.g. "CRISPR", "LLM", "mRNA", "eVTOL", "GPU", "JWST")
+  const acronymMatches = query.match(/\b([A-Z]{2,6})\b/g);
+  if (acronymMatches) {
+    for (const ac of acronymMatches) {
+      if (ac.length >= 2 && !seen.has(ac.toLowerCase())) {
+        seen.add(ac.toLowerCase());
+        entities.push({
+          canonicalName: ac,
+          matchedTerm: ac,
+          aliases: [ac.toLowerCase()],
+          entityType: "concept",
+          sportOrIndustry: domain
+        });
+      }
+    }
+  }
+
+  return entities;
+}
+
+/**
+ * Universal open-world domain classifier covering sports, technology, science,
+ * arts, culinary, politics, business, finance, health, and philosophy.
+ */
+export function classifyOpenWorldDomain(query: string): SportOrIndustryDomain {
+  const lower = query.toLowerCase();
+
+  // Sports
+  if (/\b(cricket|t20i?|odi|test\s+match|wicket|bcci|csa|cricinfo|proteas|baggy greens)\b/i.test(lower)) {
+    return "cricket";
+  }
+  if (/\b(f1|formula\s*1|grand\s+prix|scuderia|leclerc|verstappen|hamilton|imola|monza)\b/i.test(lower)) {
+    return "formula1";
+  }
+  if (/\b(soccer|premier\s+league|champions\s+league|fifa|uefa|messi|ronaldo|arsenal|barcelona)\b/i.test(lower)) {
+    return "soccer";
+  }
+  if (/\b(nba|basketball|lakers|celtics|warriors|dunk)\b/i.test(lower)) {
+    return "basketball";
+  }
+  if (/\b(nfl|super\s+bowl|touchdown|quarterback|chiefs|eagles)\b/i.test(lower)) {
+    return "football";
+  }
+  if (/\b(tennis|wimbledon|atp|wta|djokovic|alcaraz|sinner)\b/i.test(lower)) {
+    return "tennis";
+  }
+
+  // Automotive & Transportation
+  if (
+    /\b(car|cars|supercar|hypercar|ferrari|tesla|evtol|flying\s+car|air\s+taxi|aviation|electric\s+vehicle|porsche|bmw|engine|powertrain|roadster|cybertruck)\b/i.test(
+      lower
+    )
+  ) {
+    return "automotive";
+  }
+
+  // Technology, Software & AI
+  if (
+    /\b(ai|llm|gpt|openai|anthropic|machine\s+learning|software|typescript|react|python|rust|zig|compiler|cloud|api|database|gpu|nvidia|hardware|chip|semiconductor|cybersecurity|sdk)\b/i.test(
+      lower
+    )
+  ) {
+    return "software_ai";
+  }
+  if (
+    /\b(smartphone|iphone|samsung|galaxy|laptop|gadget|camera\s+lens|wearable|macbook)\b/i.test(lower)
+  ) {
+    return "consumer_tech";
+  }
+
+  // Science, Space & Archaeology
+  if (
+    /\b(quantum|physics|nasa|space|spacex|starship|astronomy|telescope|mars|lunar|biology|chemistry|crispr|genetics|dna|archaeology|archaeological|fossil|neuroscience|planet|black\s+hole|qubit|superconducting)\b/i.test(
+      lower
+    )
+  ) {
+    return "science";
+  }
+
+  // Health, Nutrition & Medicine
+  if (
+    /\b(health|medicine|vaccine|disease|cancer|clinical|nutrition|diet|fitness|mental\s+health|therapy|hospital|symptoms|biomedical)\b/i.test(
+      lower
+    )
+  ) {
+    return "health";
+  }
+
+  // Finance, Economics & Markets
+  if (
+    /\b(market|stock|stocks|economy|inflation|interest\s+rate|central\s+bank|federal\s+reserve|crypto|bitcoin|trading|investing|gdp|recession|venture\s+capital|bonds|wall\s+street)\b/i.test(
+      lower
+    )
+  ) {
+    return "finance";
+  }
+
+  // Food, Cooking & Culinary
+  if (
+    /\b(recipe|cooking|culinary|food|baking|sourdough|fermentation|chef|restaurant|pastry|gastronomy|cuisine|ingredients|michelin|dish)\b/i.test(
+      lower
+    )
+  ) {
+    return "food";
+  }
+
+  // Travel, Geography & Tourism
+  if (
+    /\b(travel|destination|tourism|hotel|flight|itinerary|resort|hiking|kyoto|tokyo|paris|rome|bali|shinkansen|geography|monument|attraction)\b/i.test(
+      lower
+    )
+  ) {
+    return "travel";
+  }
+
+  // Politics & World Affairs
+  if (
+    /\b(election|politics|government|president|parliament|congress|diplomacy|treaty|geopolitics|minister|senate|policy|democracy|legislation)\b/i.test(
+      lower
+    )
+  ) {
+    return "politics";
+  }
+
+  // Culture, History & Arts
+  if (
+    /\b(art|museum|painting|exhibition|history|ancient|roman|greek|medieval|renaissance|sculpture|philosophy|literature|poetry|architecture|opera|orchestra)\b/i.test(
+      lower
+    )
+  ) {
+    return "culture";
+  }
+
+  // Entertainment, Movies & Music
+  if (
+    /\b(movie|film|cinema|music|album|song|concert|actor|actress|hollywood|series|streaming|theatre|oscar|grammy|director)\b/i.test(
+      lower
+    )
+  ) {
+    return "entertainment";
+  }
+
+  // Gaming
+  if (/\b(game|gaming|esports|playstation|xbox|nintendo|steam|rpg|gameplay|fps|modding)\b/i.test(lower)) {
+    return "gaming";
+  }
+
+  // Environment & Sustainability
+  if (
+    /\b(climate|environment|sustainability|renewable|solar|wind|biodiversity|ecology|carbon|conservation|wildlife|microgrid)\b/i.test(
+      lower
+    )
+  ) {
+    return "environment";
+  }
+
+  // Education & Academic
+  if (
+    /\b(education|university|college|school|curriculum|teaching|student|academic|scholarship|pedagogy|dissertation|peer-reviewed)\b/i.test(
+      lower
+    )
+  ) {
+    return "education";
+  }
+
+  return "general_discovery";
+}
+
+/**
  * PHASE 3: Structured Query Understanding & Entity Resolution Engine
  */
 export function interpretSearchQuery(
@@ -588,7 +831,7 @@ export function interpretSearchQuery(
   const lower = originalQuery.toLowerCase();
   const cricketContextActive = hasCricketOrMatchupContext(originalQuery, priorConversationState);
 
-  // 1. Extract explicit named entities from the raw query
+  // 1. Extract explicit named entities from the raw query (Knowledge Base + Open World)
   const matchedEntities: ResolvedEntity[] = [];
   const seenCanonicals = new Set<string>();
 
@@ -611,8 +854,8 @@ export function interpretSearchQuery(
       }
     }
 
-    if (matchedTerm && !seenCanonicals.has(spec.canonicalName)) {
-      seenCanonicals.add(spec.canonicalName);
+    if (matchedTerm && !seenCanonicals.has(spec.canonicalName.toLowerCase())) {
+      seenCanonicals.add(spec.canonicalName.toLowerCase());
       matchedEntities.push({
         canonicalName: spec.canonicalName,
         matchedTerm,
@@ -624,6 +867,16 @@ export function interpretSearchQuery(
         flag: spec.flag,
         parentOrganization: spec.parentOrganization
       });
+    }
+  }
+
+  // Open-World Entity Extraction for queries without pre-indexed KB entities
+  const initialDomain = classifyOpenWorldDomain(originalQuery);
+  const openWorldEntities = extractOpenWorldEntities(originalQuery, initialDomain);
+  for (const owe of openWorldEntities) {
+    if (!seenCanonicals.has(owe.canonicalName.toLowerCase())) {
+      seenCanonicals.add(owe.canonicalName.toLowerCase());
+      matchedEntities.push(owe);
     }
   }
 
@@ -671,7 +924,6 @@ export function interpretSearchQuery(
         "Ferrari Drivers & Racing History"
       ];
     } else if (hasExplicitF1Cue) {
-      // Ensure Scuderia Ferrari and Formula 1 are both in effectiveEntities
       if (!effectiveEntities.some((e) => e.canonicalName === "Scuderia Ferrari")) {
         effectiveEntities.push({
           canonicalName: "Scuderia Ferrari",
@@ -700,7 +952,7 @@ export function interpretSearchQuery(
   }
 
   // 4. Determine Sport or Industry domain
-  let sportOrIndustry: SportOrIndustryDomain = "general_news";
+  let sportOrIndustry: SportOrIndustryDomain = initialDomain;
   if (
     (!conversationReference.isContextSwitch && cricketContextActive) ||
     effectiveEntities.some((e) => e.sportOrIndustry === "cricket")
@@ -712,42 +964,10 @@ export function interpretSearchQuery(
   ) {
     sportOrIndustry = "formula1";
   } else if (isBroadMultiFacetEntity && hasFerrariEntity) {
-    sportOrIndustry = "automotive"; // Multi-facet automotive + F1 motorsport
-  } else if (
-    effectiveEntities.some((e) => e.sportOrIndustry === "automotive") ||
-    /\b(tesla|roadster|cybertruck|evtol|flying\s+car|electric\s+aircraft|air\s+taxi|joby|archer\s+aviation|vertical\s+takeoff|supercar|automotive|electric\s+vehicle)\b/i.test(
-      lower
-    )
-  ) {
     sportOrIndustry = "automotive";
-  } else if (/\b(premier league|champions league|fifa|uefa|soccer|arsenal|liverpool|real madrid|barcelona)\b/i.test(lower)) {
-    sportOrIndustry = "soccer";
-  } else if (/\b(nba|basketball|lakers|celtics|warriors)\b/i.test(lower)) {
-    sportOrIndustry = "basketball";
-  } else if (/\b(nfl|super bowl|chiefs|eagles)\b/i.test(lower)) {
-    sportOrIndustry = "football";
-  } else if (/\b(atp|wta|tennis|wimbledon|alcaraz|djokovic|sinner)\b/i.test(lower)) {
-    sportOrIndustry = "tennis";
-  } else if (
-    effectiveEntities.some((e) => e.sportOrIndustry === "consumer_tech") ||
-    /\b(smartphone|iphone|samsung|galaxy|camera|hardware|laptop|phone)\b/i.test(lower)
-  ) {
-    sportOrIndustry = "consumer_tech";
-  } else if (
-    effectiveEntities.some((e) => e.sportOrIndustry === "software_ai") ||
-    /\b(ai|openai|llm|agent|agents|nvidia|gpu|typescript|react|cloud|software|sdk)\b/i.test(lower)
-  ) {
-    sportOrIndustry = "software_ai";
-  } else if (
-    effectiveEntities.some((e) => e.sportOrIndustry === "aerospace_science") ||
-    /\b(nasa|space|spacex|starship|artemis|lunar|orbit|science|astronomy)\b/i.test(lower)
-  ) {
-    sportOrIndustry = "aerospace_science";
-  } else if (
-    effectiveEntities.some((e) => e.sportOrIndustry === "travel") ||
-    /\b(japan|kyoto|tokyo|kanazawa|shinkansen|travel|itinerary|kissaten|fuji)\b/i.test(lower)
-  ) {
-    sportOrIndustry = "travel";
+  } else if (conversationReference.isFollowUp && priorConversationState) {
+    sportOrIndustry = priorConversationState.sportOrIndustry;
+  }
   } else if (/\b(market|stocks|economy|inflation|earnings|central bank|fed|bond|finance)\b/i.test(lower)) {
     sportOrIndustry = "finance";
   } else if (conversationReference.isFollowUp && priorConversationState) {
@@ -1039,6 +1259,7 @@ function buildTargetedProviderQueries(params: {
     userIntent
   } = params;
 
+  // Specific sports matchups
   if (sportOrIndustry === "cricket" && teamsOrCompetitors.length >= 2) {
     const [t1, t2] = teamsOrCompetitors;
     return [
@@ -1084,10 +1305,52 @@ function buildTargetedProviderQueries(params: {
     ];
   }
 
+  // Comparisons (e.g., Rust vs Zig, iPhone 16 vs S25)
+  if (userIntent === "reviews_and_comparisons" || /\b(vs|versus|compare)\b/i.test(normalizedQuery)) {
+    return [
+      normalizedQuery,
+      `${primarySubject} detailed comparison analysis`,
+      `${primarySubject} benchmarks specifications review`,
+      `${primarySubject} comparison video breakdown`
+    ];
+  }
+
+  // Science, Space & Research
+  if (sportOrIndustry === "science" || sportOrIndustry === "aerospace_science") {
+    return [
+      normalizedQuery,
+      `${primarySubject} scientific research paper discoveries`,
+      `${primarySubject} official announcements & analysis`,
+      `${primarySubject} photography visual explainer`
+    ];
+  }
+
+  // Food & Culinary
+  if (sportOrIndustry === "food") {
+    return [
+      normalizedQuery,
+      `${primarySubject} authentic recipes and cooking techniques`,
+      `${primarySubject} culinary history and ingredients`,
+      `${primarySubject} food photography and guide`
+    ];
+  }
+
+  // Travel & Culture
+  if (sportOrIndustry === "travel" || sportOrIndustry === "culture") {
+    return [
+      normalizedQuery,
+      `${primarySubject} cultural history and guide`,
+      `${primarySubject} editorial photography and visual stories`,
+      `${primarySubject} travel discoveries and documentary`
+    ];
+  }
+
+  // Universal fallback: targeted query expansions preserving user intent
   return [
     normalizedQuery,
-    `${primarySubject} official news & announcements`,
-    `${primarySubject} visual photography & video explainers`
+    `${primarySubject} official news announcements & reporting`,
+    `${primarySubject} deep dive analysis & visual stories`,
+    `${primarySubject} latest developments and overview`
   ];
 }
 
@@ -1123,12 +1386,29 @@ export function mapSportDomainToContentCategory(
     case "software_ai":
       return "technology";
     case "aerospace_science":
+    case "science":
       return "science";
     case "finance":
       return "finance";
     case "travel":
       return "travel";
+    case "food":
+      return "food";
+    case "health":
+      return "health";
+    case "culture":
+      return "culture";
+    case "politics":
+      return "politics";
+    case "entertainment":
+      return "entertainment";
+    case "gaming":
+      return "gaming";
+    case "environment":
+      return "environment";
+    case "education":
+      return "education";
     default:
-      return "news";
+      return "general_discovery";
   }
 }

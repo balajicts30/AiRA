@@ -15,7 +15,16 @@ export type ContentCategory =
   | "gaming"
   | "weather"
   | "finance"
-  | "travel";
+  | "travel"
+  | "culture"
+  | "food"
+  | "health"
+  | "politics"
+  | "business"
+  | "lifestyle"
+  | "environment"
+  | "general_discovery"
+  | (string & {});
 
 export type SourceType =
   | "primary"
@@ -300,7 +309,18 @@ export type DetailedUserIntent =
   | "reviews_and_comparisons"
   | "historical_information"
   | "follow_up_question"
-  | "ambiguous_or_multi_meaning";
+  | "ambiguous_or_multi_meaning"
+  | "research_and_analysis"
+  | "images_and_photography"
+  | "videos_and_vlogs"
+  | "live_updates"
+  | "product_discovery"
+  | "comparisons"
+  | "event_schedules"
+  | "geographic_discovery"
+  | "technical_documentation"
+  | "academic_research"
+  | (string & {});
 
 export type EntityClassificationType =
   | "team"
@@ -313,7 +333,11 @@ export type EntityClassificationType =
   | "organization"
   | "place"
   | "person"
-  | "topic";
+  | "topic"
+  | "concept"
+  | "event"
+  | "creative_work"
+  | (string & {});
 
 export type SportOrIndustryDomain =
   | "cricket"
@@ -328,7 +352,19 @@ export type SportOrIndustryDomain =
   | "aerospace_science"
   | "finance"
   | "travel"
-  | "general_news";
+  | "general_news"
+  | "politics"
+  | "business"
+  | "science"
+  | "health"
+  | "culture"
+  | "food"
+  | "gaming"
+  | "entertainment"
+  | "environment"
+  | "education"
+  | "general_discovery"
+  | (string & {});
 
 export interface ResolvedEntity {
   canonicalName: string;
@@ -398,12 +434,28 @@ export interface QueryInterpretation {
 // PHASE 6: 12-FACTOR RELEVANCE SCORING ENGINE & 5-TIER ACTIVE-TOPIC GATE
 // ============================================================================
 
+export type FeedlyRelevanceTier =
+  | "highly_relevant" // 85 - 100
+  | "relevant" // 70 - 84
+  | "secondary_discovery" // 55 - 69
+  | "rejected"; // < 55
+
 export interface RelevanceScoreBreakdown {
+  // Feedly-Style Adaptive Weights (0-100)
+  topicRelevanceScore?: number; // 35%
+  entityMatchingScore?: number; // 20%
+  sourceCredibilityScore: number; // 15% (legacy Factor 5 / Feedly factor)
+  freshnessScore?: number; // 10%
+  contentQualityScore?: number; // 10%
+  originalityScore?: number; // 5%
+  mediaRelevanceScore?: number; // 5%
+  feedlyTier?: FeedlyRelevanceTier;
+
+  // Granular Factor Breakdown & Compatibility
   primaryEntityScore: number; // Factor 1 (0-28)
   queryIntentScore: number; // Factor 2 (0-14)
   competitionTeamEventScore: number; // Factor 3 (0-16)
   semanticRelevanceScore: number; // Factor 4 (0-12)
-  sourceCredibilityScore: number; // Factor 5 (0-10)
   recencyScore: number; // Factor 6 (0-8)
   eventStatusScore: number; // Factor 7 (0-6)
   contentFormatScore: number; // Factor 8 (0-6)
@@ -517,6 +569,14 @@ export interface SocialArticleCard {
   primaryEntity?: string;
   relatedEntities?: string[];
   eventId?: string | null;
+  clusterId?: string;
+  relatedCoverage?: {
+    sourceName: string;
+    sourceUrl: string;
+    sourceDomain: string;
+    publishedAt: string;
+    title: string;
+  }[];
 }
 
 export interface SocialPhotologCard {
@@ -538,6 +598,14 @@ export interface SocialPhotologCard {
   primaryEntity?: string;
   relatedEntities?: string[];
   eventId?: string | null;
+  clusterId?: string;
+  relatedCoverage?: {
+    sourceName: string;
+    sourceUrl: string;
+    sourceDomain: string;
+    publishedAt: string;
+    title: string;
+  }[];
 }
 
 export interface SocialVlogCard {
@@ -559,6 +627,14 @@ export interface SocialVlogCard {
   primaryEntity?: string;
   relatedEntities?: string[];
   eventId?: string | null;
+  clusterId?: string;
+  relatedCoverage?: {
+    sourceName: string;
+    sourceUrl: string;
+    sourceDomain: string;
+    publishedAt: string;
+    title: string;
+  }[];
 }
 
 export interface SocialMatchScorecard {

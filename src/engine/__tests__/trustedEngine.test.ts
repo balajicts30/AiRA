@@ -16,6 +16,12 @@ import {
 } from "../mediaResolver";
 import { analyzeSearchIntent, TrustedSearchOrchestrator } from "../searchOrchestrator";
 import { SourceRegistryService } from "../sourceRegistry";
+import { scoreItemAgainstInterpretation } from "../relevanceScorer";
+import {
+  classifyOpenWorldDomain,
+  extractOpenWorldEntities,
+  interpretSearchQuery
+} from "../queryUnderstanding";
 import { CandidateItem } from "../types";
 import { isPrivateOrProhibitedHost, verifyUrlAgainstRegistry } from "../urlSecurity";
 import { runVerificationPipeline } from "../verificationPipeline";
@@ -1464,6 +1470,102 @@ export async function runAllEngineTests(options?: { appSource?: string }): Promi
         feed.assistantSummary.includes("No verified relevant coverage from approved sources matched"),
         `Expected honest empty-state assistantSummary, got "${feed.assistantSummary}"`
       );
+    }
+  );
+
+  // ==========================================================================
+  // SUITE 16: UNIVERSAL SEARCH INTELLIGENCE & FEEDLY-GRADE RELEVANCE
+  // ==========================================================================
+  await test(
+    "Universal Search Intelligence",
+    "Dynamically extracts entities and classifies domain for unfamiliar open-world subjects",
+    () => {
+      // 1. Quantum Computing
+      const q1 = interpretSearchQuery("Quantum computing advancements in superconducting qubits");
+      assertCondition(q1.sportOrIndustry === "science", `Expected science domain for quantum query, got ${q1.sportOrIndustry}`);
+      assertCondition(q1.namedEntities.some((e) => e.canonicalName.toLowerCase().includes("quantum")), "Expected quantum entity extracted");
+
+      // 2. Comparison: Rust vs Zig
+      const q2 = interpretSearchQuery("Rust vs Zig for systems programming");
+      assertCondition(q2.sportOrIndustry === "software_ai", `Expected software_ai domain for Rust vs Zig, got ${q2.sportOrIndustry}`);
+      assertCondition(q2.namedEntities.length >= 2, "Expected both Rust and Zig extracted as comparison entities");
+
+      // 3. Culinary: Sourdough Fermentation
+      const q3 = interpretSearchQuery("Best sourdough starter fermentation techniques");
+      assertCondition(q3.sportOrIndustry === "food", `Expected food domain, got ${q3.sportOrIndustry}`);
+      assertCondition(q3.requestedContentType === "all", "Expected requestedContentType=all");
+    }
+  );
+
+  await test(
+    "Feedly-Style Relevance Gate",
+    "Source credibility cannot compensate for poor topical relevance (Hard Rejection Rule)",
+    () => {
+      const interp = interpretSearchQuery("Quantum computing advancements in superconducting qubits");
+
+      // Candidate from Tier-1 Reuters, but completely about agricultural crop yields (irrelevant)
+      const score = scoreItemAgainstInterpretation({
+        title: "Global Agricultural Wheat and Corn Yields Reach Historic Highs",
+        summary: "Reuters agricultural commodity report detailing record wheat harvests across the midwestern plains and European river basins.",
+        sourceTier: 1,
+        interp,
+        nowMs
+      });
+
+      assertCondition(!score.isRelevant, "Expected completely irrelevant article to fail relevance gate");
+      assertCondition(score.feedlyTier === "rejected", `Expected feedlyTier=rejected, got ${score.feedlyTier}`);
+      assertCondition(score.relevanceClass === "unrelated", `Expected relevanceClass=unrelated, got ${score.relevanceClass}`);
+    }
+  );
+
+  await test(
+    "Feedly-Style Relevance Gate",
+    "Correctly classifies highly relevant, relevant, and secondary discovery candidates with 0-100 normalization",
+    () => {
+      const interp = interpretSearchQuery("James Webb Space Telescope exoplanet atmospheric discoveries");
+
+      // High relevance match
+      const highRelScore = scoreItemAgainstInterpretation({
+        title: "James Webb Space Telescope Detects Carbon Dioxide and Methane in Exoplanet Atmosphere",
+        summary: "NASA and ESA astrophysics researchers using the James Webb Space Telescope NIRSpec spectrometer confirm carbon dioxide and water vapor signatures in a distant exoplanet atmosphere.",
+        sourceTier: 1,
+        hasThumbnail: true,
+        hasAuthor: true,
+        publishedAt: recentIso,
+        interp,
+        nowMs
+      });
+
+      assertCondition(highRelScore.isRelevant, "Expected direct exoplanet match to be relevant");
+      assertCondition(
+        highRelScore.feedlyTier === "highly_relevant" || highRelScore.feedlyTier === "relevant",
+        `Expected highly_relevant or relevant tier, got ${highRelScore.feedlyTier}`
+      );
+      assertCondition(highRelScore.totalScore >= 70, `Expected totalScore >= 70, got ${highRelScore.totalScore}`);
+    }
+  );
+
+  await test(
+    "Dynamic Source Intelligence",
+    "Dynamically verifies and admits legitimate open-world publisher domains while blocking prohibited social media",
+    () => {
+      const registryService = new SourceRegistryService();
+
+      // 1. Legitimate academic/science domain
+      const legit = registryService.resolveOrRegisterDomain("quantum-journal.org", "quantum-journal.org", "science");
+      assertCondition(legit.allowed, "Expected legitimate journal domain to be admitted");
+      assertCondition(legit.record?.approvalStatus === "approved", "Expected approvalStatus=approved");
+
+      // 2. Prohibited social media
+      const fb = registryService.resolveOrRegisterDomain("facebook.com");
+      assertCondition(!fb.allowed, "Facebook must be rejected");
+      assertCondition(fb.rejection?.reasonCode === "PROHIBITED_SOCIAL_MEDIA", "Expected PROHIBITED_SOCIAL_MEDIA");
+
+      const tw = registryService.resolveOrRegisterDomain("x.com");
+      assertCondition(!tw.allowed, "X.com must be rejected");
+
+      const th = registryService.resolveOrRegisterDomain("threads.net");
+      assertCondition(!th.allowed, "Threads must be rejected");
     }
   );
 

@@ -529,14 +529,212 @@ export function scoreItemAgainstInterpretation(params: {
   if (hasAuthor && cleanSummary.length >= 45) metadataCompletenessScore += 1;
 
   // ==========================================================================
-  // FACTOR 10, 11, 12: DIVERSITY, DUPLICATE PENALTY, USER PREFERENCE
+  // FEEDLY-STYLE ADAPTIVE RELEVANCE MODEL (SECTION 5.2)
+  // Normalized 8-factor evaluation with intent-adaptive weights:
+  //   1. Topic Relevance (35%)
+  //   2. Entity & Subject Matching (20%)
+  //   3. Source Credibility (15%)
+  //   4. Freshness (10%)
+  //   5. Content Quality (10%)
+  //   6. Originality (5%)
+  //   7. Media Relevance (5%)
   // ==========================================================================
-  const diversityAdjustment = 0; // Adjusted in collection pass
+
+  // Determine intent-adaptive weights
+  interface FeedlyWeights {
+    topic: number;
+    entity: number;
+    source: number;
+    freshness: number;
+    quality: number;
+    originality: number;
+    media: number;
+  }
+
+  let weights: FeedlyWeights = {
+    topic: 0.35,
+    entity: 0.20,
+    source: 0.15,
+    freshness: 0.10,
+    quality: 0.10,
+    originality: 0.05,
+    media: 0.05
+  };
+
+  switch (interp.userIntent) {
+    case "breaking_news":
+    case "live_event_or_score":
+      weights = {
+        topic: 0.30,
+        entity: 0.20,
+        source: 0.20,
+        freshness: 0.20,
+        quality: 0.05,
+        originality: 0.03,
+        media: 0.02
+      };
+      break;
+    case "historical_information":
+      weights = {
+        topic: 0.30,
+        entity: 0.20,
+        source: 0.20,
+        freshness: 0.00,
+        quality: 0.20,
+        originality: 0.05,
+        media: 0.05
+      };
+      break;
+    case "academic_research":
+    case "research_and_analysis":
+    case "technical_documentation":
+      weights = {
+        topic: 0.35,
+        entity: 0.20,
+        source: 0.20,
+        freshness: 0.05,
+        quality: 0.15,
+        originality: 0.05,
+        media: 0.00
+      };
+      break;
+    case "product_information":
+    case "reviews_and_comparisons":
+    case "product_discovery":
+      weights = {
+        topic: 0.30,
+        entity: 0.30,
+        source: 0.15,
+        freshness: 0.05,
+        quality: 0.10,
+        originality: 0.05,
+        media: 0.05
+      };
+      break;
+    case "photos_and_videos":
+    case "images_and_photography":
+    case "videos_and_vlogs":
+      weights = {
+        topic: 0.30,
+        entity: 0.15,
+        source: 0.10,
+        freshness: 0.10,
+        quality: 0.05,
+        originality: 0.05,
+        media: 0.25
+      };
+      break;
+    default:
+      weights = {
+        topic: 0.35,
+        entity: 0.20,
+        source: 0.15,
+        freshness: 0.10,
+        quality: 0.10,
+        originality: 0.05,
+        media: 0.05
+      };
+  }
+
+  // 1. Normalized Topic Relevance (0.0 to 1.0)
+  const normSemanticRatio = queryTokens.length > 0 ? matchedTokenCount / queryTokens.length : 0.7;
+  const isTitleSubjectMatch = containsTerm(titleLower, interp.primarySubject);
+  const feedlyNormTopic = Math.min(
+    1,
+    Math.max(
+      0,
+      isTitleSubjectMatch
+        ? 0.95
+        : normSemanticRatio >= 0.75
+        ? 0.9
+        : normSemanticRatio >= 0.5
+        ? 0.72
+        : normSemanticRatio >= 0.25
+        ? 0.45
+        : 0.1
+    )
+  );
+
+  // 2. Normalized Entity Matching (0.0 to 1.0)
+  const feedlyNormEntity = Math.min(1, Math.max(0, primaryEntityScore / 28));
+
+  // 3. Normalized Source Credibility (0.0 to 1.0)
+  const feedlyNormSource = sourceTier === 1 ? 1.0 : sourceTier === 2 ? 0.85 : 0.70;
+
+  // 4. Normalized Freshness (0.0 to 1.0)
+  const feedlyNormFreshness = Math.min(1, Math.max(0, recencyScore / 8));
+
+  // 5. Normalized Content Quality (0.0 to 1.0)
+  const feedlyNormQuality = Math.min(
+    1,
+    Math.max(
+      0,
+      (cleanSummary.length >= 80 ? 0.6 : cleanSummary.length >= 35 ? 0.4 : 0.2) +
+        (metadataCompletenessScore >= 3 ? 0.4 : metadataCompletenessScore * 0.13)
+    )
+  );
+
+  // 6. Normalized Originality (0.0 to 1.0)
+  const feedlyNormOriginality = isSyndicatedWire ? 0.4 : 1.0;
+
+  // 7. Normalized Media Relevance (0.0 to 1.0)
+  const feedlyNormMedia = hasThumbnail || dataType === "photo_report" || dataType === "video_report" ? 1.0 : 0.4;
+
+  // Calculate component weighted scores
+  const topicRelevanceScore = Math.round(feedlyNormTopic * 35);
+  const entityMatchingScore = Math.round(feedlyNormEntity * 20);
+  const calculatedSourceScore = Math.round(feedlyNormSource * 15);
+  const freshnessScore = Math.round(feedlyNormFreshness * 10);
+  const contentQualityScore = Math.round(feedlyNormQuality * 10);
+  const originalityScore = Math.round(feedlyNormOriginality * 5);
+  const mediaRelevanceScore = Math.round(feedlyNormMedia * 5);
+
+  const rawFeedlyWeighted =
+    feedlyNormTopic * (weights.topic * 100) +
+    feedlyNormEntity * (weights.entity * 100) +
+    feedlyNormSource * (weights.source * 100) +
+    feedlyNormFreshness * (weights.freshness * 100) +
+    feedlyNormQuality * (weights.quality * 100) +
+    feedlyNormOriginality * (weights.originality * 100) +
+    feedlyNormMedia * (weights.media * 100);
+
+  // Hard rejection rules:
+  // - Completely unrelated topics (topic relevance < 0.25)
+  // - Mismatch penalty applied (wrong team, wrong domain, lookalike)
+  // - Entity matching = 0 on structured entities
+  const isTopicFail = feedlyNormTopic < 0.25;
+  const isHardRejected = isTopicFail || mismatchPenalty < 0 || primaryEntityScore === 0;
+
+  let feedlyScore = Math.max(0, Math.min(100, Math.round(rawFeedlyWeighted + mismatchPenalty)));
+  if (isHardRejected) {
+    feedlyScore = Math.min(feedlyScore, 48);
+  }
+
+  // Derive Feedly ranking tier from 0-100 score
+  let feedlyTier: "highly_relevant" | "relevant" | "secondary_discovery" | "rejected" = "rejected";
+  if (!isHardRejected && feedlyScore >= 85) {
+    feedlyTier = "highly_relevant";
+    if (relevanceClass !== "direct_match") relevanceClass = "direct_match";
+  } else if (!isHardRejected && feedlyScore >= 70) {
+    feedlyTier = "relevant";
+    if (relevanceClass === "unrelated" || relevanceClass === "tangential") {
+      relevanceClass = "strongly_related";
+    }
+  } else if (!isHardRejected && feedlyScore >= 55) {
+    feedlyTier = "secondary_discovery";
+    if (relevanceClass === "unrelated") relevanceClass = "strongly_related";
+  } else {
+    feedlyTier = "rejected";
+    relevanceClass = "unrelated";
+  }
+
+  // Factor 10, 11, 12: Legacy calculations preserved for backward telemetry
+  const diversityAdjustment = 0;
   const duplicatePenalty = isSyndicatedWire ? -4 : 0;
   const userPreferenceBonus =
     interp.requestedContentType !== "all" && contentFormatScore === 6 ? 4 : 0;
 
-  const rawTotal =
+  const rawLegacyTotal =
     primaryEntityScore +
     queryIntentScore +
     competitionTeamEventScore +
@@ -551,21 +749,28 @@ export function scoreItemAgainstInterpretation(params: {
     userPreferenceBonus +
     mismatchPenalty;
 
-  const totalScore = Math.max(0, Math.min(100, Math.round(rawTotal)));
+  const totalScore = Math.max(0, Math.min(100, Math.round(Math.max(rawLegacyTotal, feedlyScore))));
 
-  // MANDATORY ACTIVE-TOPIC RELEVANCE GATE (Section 3):
-  // Only "direct_match" and "strongly_related" items may enter the feed.
-  const isAllowedClass =
-    relevanceClass === "direct_match" || relevanceClass === "strongly_related";
   const isRelevant =
-    isAllowedClass && primaryEntityScore > 0 && mismatchPenalty === 0 && totalScore >= 42;
+    !isHardRejected &&
+    feedlyTier !== "rejected" &&
+    (relevanceClass === "direct_match" || relevanceClass === "strongly_related") &&
+    feedlyScore >= 55;
 
   return {
+    topicRelevanceScore,
+    entityMatchingScore,
+    sourceCredibilityScore: calculatedSourceScore,
+    freshnessScore,
+    contentQualityScore,
+    originalityScore,
+    mediaRelevanceScore,
+    feedlyTier,
+
     primaryEntityScore,
     queryIntentScore,
     competitionTeamEventScore,
     semanticRelevanceScore,
-    sourceCredibilityScore,
     recencyScore,
     eventStatusScore,
     contentFormatScore,
@@ -580,6 +785,6 @@ export function scoreItemAgainstInterpretation(params: {
     relevanceEvidence,
     extractedEntities,
     primaryTopic: interp.primarySubject,
-    explanation: `[${relevanceClass}] Entity=${primaryEntityScore}, Intent=${queryIntentScore}, Domain=${competitionTeamEventScore}, Semantic=${semanticRelevanceScore}, Credibility=${sourceCredibilityScore}, Penalty=${mismatchPenalty} -> Total=${totalScore} (${relevanceEvidence})`
+    explanation: `[${feedlyTier.toUpperCase()}] FeedlyScore=${feedlyScore} (Topic=${topicRelevanceScore}/35, Entity=${entityMatchingScore}/20, Source=${calculatedSourceScore}/15, Freshness=${freshnessScore}/10, Quality=${contentQualityScore}/10) -> Class=${relevanceClass}`
   };
 }

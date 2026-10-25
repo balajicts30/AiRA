@@ -318,6 +318,56 @@ function matchesDomainList(hostname: string, registrableDomain: string, domainLi
 }
 
 /**
+ * Dynamically constructs a verified SourceRegistryRecord for legitimate open-world web domains.
+ */
+export function createDynamicSourceRecord(
+  hostname: string,
+  registrableDomain: string,
+  trustTier: 1 | 2 | 3 = 2
+): SourceRegistryRecord {
+  const parts = (registrableDomain || hostname).split(".");
+  const nameBase = parts[0] || hostname;
+  const capitalized = nameBase
+    .split(/[-_]/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+
+  const isEduOrGov =
+    hostname.endsWith(".edu") ||
+    hostname.endsWith(".gov") ||
+    hostname.endsWith(".ac.uk") ||
+    hostname.endsWith(".mil");
+  const effectiveTier: 1 | 2 | 3 = isEduOrGov ? 1 : trustTier;
+  const sourceType = isEduOrGov
+    ? hostname.endsWith(".gov")
+      ? "official"
+      : "research_organization"
+    : "news_publisher";
+
+  return {
+    id: `dyn-src-${(registrableDomain || hostname).replace(/[^a-z0-9]/gi, "-").toLowerCase()}`,
+    publisherName: isEduOrGov ? `${capitalized} Official/Academic` : capitalized,
+    canonicalDomain: registrableDomain || hostname,
+    approvedSubdomains: ["www", "news", "blog", "articles", "press", "docs", "media", "research"],
+    category: "general_discovery",
+    sourceType,
+    approvalStatus: "approved",
+    geographicCoverage: ["Global"],
+    supportedLanguages: ["en"],
+    permittedIngestionMethods: ["approved_discovery"],
+    commercialLicensingNotes: "Dynamically evaluated open web source; canonical link attribution required.",
+    trustTier: effectiveTier,
+    maxContentAgeMs: 90 * 24 * 3600 * 1000,
+    maxCacheDurationMs: 15 * 60 * 1000,
+    lastSuccessfulRetrieval: null,
+    lastValidationTime: new Date().toISOString(),
+    integrationHealth: "healthy",
+    recentFailureCount: 0,
+    adminNotes: "Dynamic open-world domain verified under Universal Search Intelligence."
+  };
+}
+
+/**
  * Validates a URL and its optional redirect chain against:
  * 1. SSRF / Private network checks
  * 2. Social Media Denylist (Facebook, Instagram, X/Twitter, Threads, Reddit, etc.)
@@ -325,11 +375,16 @@ function matchesDomainList(hostname: string, registrableDomain: string, domainLi
  * 4. Unapproved URL Shorteners (unless final destination is provided & verified)
  * 5. Lookalike / Brand-Spoofing Hostnames
  * 6. Central Approved Source Registry (canonicalDomain + approvedSubdomains + approvalStatus === 'approved')
+ * 7. Open-world dynamic domain verification (when allowDynamicRegistration is active)
  */
 export function verifyUrlAgainstRegistry(
   rawUrl: string,
   registry: SourceRegistryRecord[],
-  redirectChain: string[] = []
+  redirectChain: string[] = [],
+  options?: {
+    allowDynamicRegistration?: boolean;
+    defaultTrustTier?: 1 | 2 | 3;
+  }
 ): {
   allowed: boolean;
   matchedSource?: SourceRegistryRecord;
@@ -359,7 +414,7 @@ export function verifyUrlAgainstRegistry(
 
     const { hostname, registrableDomain, subdomain, canonicalUrl } = inspected;
 
-    // 1. Check Prohibited Social Media Denylist
+    // 1. Check Prohibited Social Media Denylist (Strict, non-negotiable)
     if (matchesDomainList(hostname, registrableDomain, PROHIBITED_SOCIAL_DOMAINS)) {
       return {
         allowed: false,
@@ -408,28 +463,44 @@ export function verifyUrlAgainstRegistry(
       continue;
     }
 
-    // If this is the final hop (or non-shortener intermediate hop), check against registry
+    // Check if hostname is a deceptive lookalike containing a protected publisher/brand name
+    const isLookalike = PROTECTED_BRAND_KEYWORDS.some((brand) => hostname.includes(brand));
+    const isAuthenticProtectedDomain = registry.some(
+      (src) => hostname === src.canonicalDomain || hostname.endsWith(`.${src.canonicalDomain}`)
+    );
+
+    if (isLookalike && !isAuthenticProtectedDomain) {
+      return {
+        allowed: false,
+        canonicalUrl,
+        rejection: {
+          timestamp: new Date().toISOString(),
+          url: rawUrl,
+          normalizedDomain: hostname,
+          reasonCode: "LOOKALIKE_SPOOF_DOMAIN",
+          detail: `Rejected lookalike/spoofed domain "${hostname}" impersonating an approved publisher or brand`
+        }
+      };
+    }
+
+    // 4. Check against registry
     const matchedRecords = registry.filter((src) => {
       const srcDom = src.canonicalDomain.toLowerCase();
       return hostname === srcDom || registrableDomain === srcDom || hostname.endsWith(`.${srcDom}`);
     });
 
     if (matchedRecords.length === 0) {
-      // Check if hostname is a deceptive lookalike containing a protected publisher/brand name
-      const isLookalike = PROTECTED_BRAND_KEYWORDS.some(
-        (brand) => hostname.includes(brand)
-      );
-      if (isLookalike) {
+      // Dynamic open-world resolution if permitted
+      if (options?.allowDynamicRegistration && !isLookalike && !isPrivateOrProhibitedHost(hostname)) {
+        const dynamicRecord = createDynamicSourceRecord(
+          hostname,
+          registrableDomain,
+          options.defaultTrustTier || 2
+        );
         return {
-          allowed: false,
-          canonicalUrl,
-          rejection: {
-            timestamp: new Date().toISOString(),
-            url: rawUrl,
-            normalizedDomain: hostname,
-            reasonCode: "LOOKALIKE_SPOOF_DOMAIN",
-            detail: `Rejected lookalike/spoofed domain "${hostname}" impersonating an approved publisher or brand`
-          }
+          allowed: true,
+          matchedSource: dynamicRecord,
+          canonicalUrl
         };
       }
 

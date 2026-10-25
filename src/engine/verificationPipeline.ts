@@ -127,6 +127,7 @@ export function runVerificationPipeline(params: {
   registry: SourceRegistryRecord[];
   interpretation?: QueryInterpretation;
   requireQueryMatch?: boolean;
+  allowDynamicSources?: boolean;
   nowMs?: number;
 }): {
   verifiedResults: StandardizedSearchResult[];
@@ -140,6 +141,7 @@ export function runVerificationPipeline(params: {
     registry,
     interpretation,
     requireQueryMatch = true,
+    allowDynamicSources = false,
     nowMs = Date.now()
   } = params;
 
@@ -159,7 +161,12 @@ export function runVerificationPipeline(params: {
     // ========================================================================
     // STAGE 3: URL & DOMAIN VERIFICATION (SSRF, Denylist, Redirects, Allowlist)
     // ========================================================================
-    const urlCheck = verifyUrlAgainstRegistry(cand.url, registry, cand.redirectChain || []);
+    const urlCheck = verifyUrlAgainstRegistry(
+      cand.url,
+      registry,
+      cand.redirectChain || [],
+      { allowDynamicRegistration: allowDynamicSources }
+    );
     if (!urlCheck.allowed || !urlCheck.matchedSource) {
       if (urlCheck.rejection) {
         rejectedLogs.push({ ...urlCheck.rejection, query });

@@ -13,6 +13,7 @@ import {
 import {
   DISABLED_ENCYCLOPEDIA_DOMAINS,
   PROHIBITED_SOCIAL_DOMAINS,
+  createDynamicSourceRecord,
   isPrivateOrProhibitedHost
 } from "./urlSecurity";
 
@@ -1767,6 +1768,100 @@ export class SourceRegistryService {
       summary: `Set integration health of ${record.publisherName} to ${health}`
     });
     return { success: true, record };
+  }
+
+  /**
+   * Dynamically resolves or registers an open-world domain into the registry
+   * under Feedly-grade source governance policies.
+   */
+  public resolveOrRegisterDomain(
+    hostname: string,
+    registrableDomain?: string,
+    category: ContentCategory = "general_discovery"
+  ): { allowed: boolean; record?: SourceRegistryRecord; rejection?: RejectedSourceLog } {
+    const normHost = hostname.trim().toLowerCase();
+    const regDom = (registrableDomain || normHost).trim().toLowerCase();
+
+    // 1. Check prohibited social media denylist
+    if (
+      PROHIBITED_SOCIAL_DOMAINS.some(
+        (p) => normHost === p || regDom === p || normHost.endsWith(`.${p}`)
+      )
+    ) {
+      return {
+        allowed: false,
+        rejection: {
+          timestamp: new Date().toISOString(),
+          url: `https://${normHost}`,
+          normalizedDomain: normHost,
+          reasonCode: "PROHIBITED_SOCIAL_MEDIA",
+          detail: `Prohibited social media platform (${normHost}) cannot be used as a factual source.`
+        }
+      };
+    }
+
+    // 2. Check disabled encyclopedia denylist
+    if (
+      DISABLED_ENCYCLOPEDIA_DOMAINS.some(
+        (w) => normHost === w || regDom === w || normHost.endsWith(`.${w}`)
+      )
+    ) {
+      return {
+        allowed: false,
+        rejection: {
+          timestamp: new Date().toISOString(),
+          url: `https://${normHost}`,
+          normalizedDomain: normHost,
+          reasonCode: "WIKIPEDIA_DISABLED",
+          detail: `Wikipedia/Wikimedia (${normHost}) is disabled for the curated discovery pipeline.`
+        }
+      };
+    }
+
+    // 3. Check SSRF / private hostnames
+    if (isPrivateOrProhibitedHost(normHost)) {
+      return {
+        allowed: false,
+        rejection: {
+          timestamp: new Date().toISOString(),
+          url: `https://${normHost}`,
+          normalizedDomain: normHost,
+          reasonCode: "SSRF_PRIVATE_OR_INVALID_HOST",
+          detail: `Private or internal hostname (${normHost}) is prohibited.`
+        }
+      };
+    }
+
+    // 4. Check if domain already exists in registry
+    const existing = Array.from(this.sources.values()).find(
+      (s) =>
+        s.canonicalDomain.toLowerCase() === normHost ||
+        s.canonicalDomain.toLowerCase() === regDom ||
+        normHost.endsWith(`.${s.canonicalDomain.toLowerCase()}`)
+    );
+
+    if (existing) {
+      if (existing.approvalStatus !== "approved" || existing.integrationHealth === "disabled") {
+        return {
+          allowed: false,
+          record: existing,
+          rejection: {
+            timestamp: new Date().toISOString(),
+            url: `https://${normHost}`,
+            normalizedDomain: normHost,
+            reasonCode: "SOURCE_NOT_APPROVED_STATUS",
+            detail: `Domain "${normHost}" has status "${existing.approvalStatus}"`
+          }
+        };
+      }
+      return { allowed: true, record: existing };
+    }
+
+    // 5. Create dynamic source record
+    const newRecord = createDynamicSourceRecord(normHost, regDom);
+    newRecord.category = category;
+    this.sources.set(newRecord.id, newRecord);
+    return { allowed: true, record: newRecord };
   }
 }
 

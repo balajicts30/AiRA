@@ -1668,6 +1668,26 @@ export default function App() {
                                   <p className="text-xs sm:text-sm text-slate-300 leading-relaxed mb-3.5 line-clamp-3">
                                     {article.snippet}
                                   </p>
+
+                                  {/* Story Clustering: Related Publisher Coverage */}
+                                  {article.relatedCoverage && article.relatedCoverage.length > 0 && (
+                                    <div className="mt-2 pt-2 border-t border-white/[0.05] flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
+                                      <span className="font-semibold text-amber-300/90 shrink-0">Also covered by:</span>
+                                      {article.relatedCoverage.map((rel: any, rIdx: number) => (
+                                        <a
+                                          key={rIdx}
+                                          href={rel.sourceUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="hover:text-cyan-300 bg-white/[0.03] hover:bg-white/[0.07] px-2 py-0.5 rounded border border-white/[0.06] transition flex items-center gap-1"
+                                          title={rel.title}
+                                        >
+                                          <span>{rel.sourceName}</span>
+                                          <ArrowUpRight className="w-2.5 h-2.5 opacity-70" />
+                                        </a>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
 
