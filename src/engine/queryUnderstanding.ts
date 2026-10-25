@@ -965,9 +965,6 @@ export function interpretSearchQuery(
     sportOrIndustry = "formula1";
   } else if (isBroadMultiFacetEntity && hasFerrariEntity) {
     sportOrIndustry = "automotive";
-  } else if (conversationReference.isFollowUp && priorConversationState) {
-    sportOrIndustry = priorConversationState.sportOrIndustry;
-  }
   } else if (/\b(market|stocks|economy|inflation|earnings|central bank|fed|bond|finance)\b/i.test(lower)) {
     sportOrIndustry = "finance";
   } else if (conversationReference.isFollowUp && priorConversationState) {
